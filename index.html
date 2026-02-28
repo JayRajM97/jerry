@@ -1,0 +1,354 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume Updater | Uber Base Design</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              background: 'var(--bg-primary)',
+              surface: 'var(--bg-secondary)',
+              elevated: 'var(--bg-tertiary)',
+              content: {
+                DEFAULT: 'var(--text-primary)',
+                secondary: 'var(--text-secondary)',
+              },
+              border: 'var(--border-color)',
+            }
+          }
+        }
+      }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Added html2pdf for robust client-side PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-primary, #FFFFFF);
+            color: var(--text-primary, #000000);
+            overflow-x: hidden;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        html.dark body {
+            --bg-primary: #000000;
+            --bg-secondary: #141414;
+            --bg-tertiary: #1F1F1F;
+            --text-primary: #FFFFFF;
+            --text-secondary: #AFAFAF;
+            --border-color: #333333;
+            --btn-primary-bg: #FFFFFF;
+            --btn-primary-text: #000000;
+            --btn-primary-hover: #E2E2E2;
+            --btn-secondary-bg: #000000;
+            --btn-secondary-text: #FFFFFF;
+            --btn-secondary-border: #FFFFFF;
+            --btn-secondary-hover: #141414;
+        }
+
+        :root {
+            --bg-primary: #FFFFFF;
+            --bg-secondary: #F6F6F6;
+            --bg-tertiary: #FFFFFF;
+            --text-primary: #000000;
+            --text-secondary: #545454;
+            --border-color: #E2E2E2;
+            --btn-primary-bg: #000000;
+            --btn-primary-text: #FFFFFF;
+            --btn-primary-hover: #333333;
+            --btn-secondary-bg: #FFFFFF;
+            --btn-secondary-text: #000000;
+            --btn-secondary-border: #000000;
+            --btn-secondary-hover: #F6F6F6;
+        }
+
+        /* Uber Base Button Styles */
+        .uber-button-primary {
+            background-color: var(--btn-primary-bg);
+            color: var(--btn-primary-text);
+            padding: 12px 24px;
+            font-weight: 500;
+            border-radius: 0;
+            transition: background-color 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            cursor: pointer;
+        }
+        .uber-button-primary:hover {
+            background-color: var(--btn-primary-hover);
+        }
+        .uber-button-primary:disabled {
+            background-color: #E2E2E2;
+            color: #AFAFAF;
+            cursor: not-allowed;
+        }
+        html.dark .uber-button-primary:disabled {
+            background-color: #333333;
+            color: #757575;
+        }
+
+        .uber-button-secondary {
+            background-color: var(--btn-secondary-bg);
+            color: var(--btn-secondary-text);
+            padding: 12px 24px;
+            font-weight: 500;
+            border-radius: 0;
+            border: 1px solid var(--btn-secondary-border);
+            transition: background-color 0.2s;
+            cursor: pointer;
+        }
+        .uber-button-secondary:hover {
+            background-color: var(--btn-secondary-hover);
+        }
+
+        /* GitHub Style Diff Colors */
+        .diff-removed {
+            background-color: #ffebe9;
+            color: #cf222e;
+            text-decoration: line-through;
+            padding: 2px 4px;
+            display: block;
+            border-left: 4px solid #cf222e;
+        }
+        html.dark .diff-removed {
+            background-color: #3D1010;
+            color: #FF8585;
+            border-left-color: #FF8585;
+        }
+        .diff-added {
+            background-color: #e6ffec;
+            color: #1a7f37;
+            padding: 2px 4px;
+            display: block;
+            border-left: 4px solid #1a7f37;
+        }
+        html.dark .diff-added {
+            background-color: #103D10;
+            color: #85FF85;
+            border-left-color: #85FF85;
+        }
+
+        /* Uber Base Card & Input Styles */
+        .uber-card {
+            border: 1px solid #E2E2E2;
+            background-color: #FFFFFF;
+        }
+        
+        html.dark .uber-card {
+            border-color: #333333;
+            background-color: #141414;
+        }
+        
+        .uber-input {
+            border: 1px solid #E2E2E2;
+            background-color: #F6F6F6;
+            padding: 12px;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+        
+        html.dark .uber-input {
+            border-color: #333333;
+            background-color: #121212;
+            color: #E0E0E0;
+        }
+        
+        .uber-input:focus {
+            border-color: #000000;
+            background-color: #FFFFFF;
+            outline: none;
+        }
+        
+        html.dark .uber-input:focus {
+            border-color: #E0E0E0;
+            background-color: #1E1E1E;
+        }
+
+        /* CV Content & Editor Styles - Enforcing Standard Formatting */
+        .cv-content, .ProseMirror {
+            color: #000000 !important;
+            font-size: 11pt;
+            line-height: 1.4;
+            font-family: 'Calibri', 'Arial', sans-serif;
+            text-align: left;
+        }
+        
+        .ProseMirror {
+            min-height: 100%;
+            outline: none;
+        }
+
+        /* STRICT FORMATTING ENFORCEMENT */
+        .cv-content strong, .cv-content b, 
+        .ProseMirror strong, .ProseMirror b {
+            font-weight: 700 !important;
+            color: #000;
+        }
+
+        .cv-content em, .cv-content i, 
+        .ProseMirror em, .ProseMirror i {
+            font-style: italic !important;
+        }
+
+        .cv-content u, .ProseMirror u {
+            text-decoration: underline !important;
+        }
+
+        .cv-content a, .ProseMirror a {
+            color: #0563C1;
+            text-decoration: underline;
+        }
+
+        .cv-content p, .ProseMirror p { 
+            margin-bottom: 0.5rem; 
+        }
+        
+        /* Lists - Ensure bullets are visible and indented */
+        .cv-content ul, .ProseMirror ul { 
+            list-style-type: disc !important; 
+            margin-left: 1.5rem !important; 
+            margin-bottom: 0.5rem !important; 
+            padding-left: 0.5rem !important;
+        }
+        .cv-content ol, .ProseMirror ol { 
+            list-style-type: decimal !important; 
+            margin-left: 1.5rem !important; 
+            margin-bottom: 0.5rem !important; 
+            padding-left: 0.5rem !important;
+        }
+        .cv-content li, .ProseMirror li { 
+            display: list-item !important; 
+            margin-bottom: 0.2rem;
+            padding-left: 0.2rem;
+        }
+        .cv-content li p, .ProseMirror li p {
+            margin-bottom: 0;
+            display: inline;
+        }
+
+        /* Headings */
+        .cv-content h1, .ProseMirror h1 {
+            font-size: 18pt;
+            font-weight: 700 !important;
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid #000;
+            padding-bottom: 4px;
+            line-height: 1.2;
+        }
+        .cv-content h2, .ProseMirror h2 {
+            font-size: 14pt;
+            font-weight: 700 !important;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            line-height: 1.2;
+        }
+        .cv-content h3, .ProseMirror h3 {
+            font-size: 12pt;
+            font-weight: 700 !important;
+            margin-top: 0.5rem;
+            margin-bottom: 0.25rem;
+            text-transform: uppercase;
+        }
+        
+        /* A4 Page Simulation for Editor/Preview */
+        .a4-page {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 20mm;
+            margin: 0 auto;
+            background: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        
+        html.dark .a4-page {
+            background-color: #FFFFFF !important;
+            color: #000000 !important;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+            body * {
+                visibility: hidden;
+            }
+            #root {
+                margin: 0;
+                padding: 0;
+            }
+            /* Only show the editor content */
+            .a4-page, .a4-page * {
+                visibility: visible;
+            }
+            .a4-page {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                padding: 20mm !important; /* Force padding on print */
+                box-shadow: none;
+                border: none;
+            }
+            @page {
+                size: A4;
+                margin: 0; /* Important: Let the div handle padding */
+            }
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #F6F6F6; }
+        ::-webkit-scrollbar-thumb { background: #000000; }
+
+        .uber-loader {
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-top: 2px solid #FFFFFF;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "@google/genai": "https://esm.sh/@google/genai@^1.40.0",
+    "@tiptap/react": "https://esm.sh/@tiptap/react@^2.6.6",
+    "@tiptap/starter-kit": "https://esm.sh/@tiptap/starter-kit@^2.6.6",
+    "@tiptap/extension-underline": "https://esm.sh/@tiptap/extension-underline@^2.6.6",
+    "@tiptap/extension-link": "https://esm.sh/@tiptap/extension-link@^2.6.6",
+    "@tiptap/extension-text-align": "https://esm.sh/@tiptap/extension-text-align@^2.6.6",
+    "mammoth": "https://esm.sh/mammoth@^1.4.8",
+    "pdfjs-dist": "https://esm.sh/pdfjs-dist@4.10.38",
+    "html-docx-js-typescript": "https://esm.sh/html-docx-js-typescript@0.1.5",
+    "clsx": "https://esm.sh/clsx@^2.1.1",
+    "tailwind-merge": "https://esm.sh/tailwind-merge@^2.3.0",
+    "@libsql/client": "https://esm.sh/@libsql/client@0.6.0/web"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

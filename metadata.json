@@ -1,0 +1,7 @@
+{
+  "name": "Jerry Maguire",
+  "description": "A Duolingo-style CV tailoring tool that uses AI to align your resume with job descriptions via GitHub-style diffs and real-time ATS scoring, while strictly preserving facts.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
