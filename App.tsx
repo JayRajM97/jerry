@@ -36,6 +36,8 @@ import OutreachSelector from './components/OutreachSelector';
 import CompanyIntelCard from './components/CompanyIntelCard';
 import CoverLetterPanel from './components/CoverLetterPanel';
 import JobUrlInput from './components/JobUrlInput';
+import ApplyPanel from './components/ApplyPanel';
+import { extractAutofillData } from './utils/autofillScript';
 import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
 // @ts-ignore
@@ -94,7 +96,8 @@ const App: React.FC = () => {
   // --- Workspace State ---
   const [cvHtml, setCvHtml] = useState('');
   const [jdText, setJdText] = useState('');
-  
+  const [jobUrl, setJobUrl] = useState('');
+
   // New state for the "final" edited HTML in the preview tab
   const [finalPreviewHtml, setFinalPreviewHtml] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -144,7 +147,7 @@ const App: React.FC = () => {
 
   const [state, setState] = useState<AppState>(EMPTY_STATE);
 
-  const [activeTab, setActiveTab] = useState<'input' | 'analyze' | 'preview'>('input');
+  const [activeTab, setActiveTab] = useState<'input' | 'analyze' | 'preview' | 'apply'>('input');
   const [inputMethod, setInputMethod] = useState<'upload' | 'paste'>('paste');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -304,6 +307,7 @@ const App: React.FC = () => {
   const startNewApplication = () => {
     setCvHtml(masterCvHtml);
     setJdText('');
+    setJobUrl('');
     setFinalPreviewHtml('');
     setState(prev => ({ ...EMPTY_STATE, mode: prev.mode }));
     setActiveTab('input');
@@ -606,6 +610,7 @@ const App: React.FC = () => {
 
   const handleFetchJobUrl = async (url: string) => {
     setState(prev => ({ ...prev, jdFetchStatus: 'fetching' }));
+    setJobUrl(url);
     try {
       const { jdText: fetched, companyName, jobTitle } = await fetchAndParseJobUrl(url);
       setJdText(fetched);
@@ -826,6 +831,7 @@ const App: React.FC = () => {
             { id: 'input', label: '1. Input' },
             { id: 'analyze', label: '2. Analyze' },
             { id: 'preview', label: '3. Preview' },
+            { id: 'apply', label: '4. Apply' },
           ].map(tab => (
             <button 
               key={tab.id}
@@ -1071,17 +1077,24 @@ const App: React.FC = () => {
                           )}
                        </nav>
                        
-                       <button 
-                          onClick={() => setActiveTab('preview')}
+                       <button
+                          onClick={() => setActiveTab('apply')}
                           className="mt-12 w-full uber-button-primary py-4 font-bold tracking-[0.2em] text-[10px] uppercase shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-1"
                         >
-                          PROCEED TO EDITOR
+                          APPLY NOW →
                        </button>
 
-                       <button 
+                       <button
+                          onClick={() => setActiveTab('preview')}
+                          className="mt-3 w-full bg-white dark:bg-[#141414] border border-gray-200 dark:border-[#333333] text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white hover:border-black dark:hover:border-white py-3 font-bold tracking-[0.2em] text-[10px] uppercase transition-all"
+                        >
+                          OPEN EDITOR
+                       </button>
+
+                       <button
                           onClick={handleGenerate}
                           disabled={state.isLoading}
-                          className="mt-4 w-full bg-white dark:bg-[#141414] border border-gray-200 dark:border-[#333333] text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white hover:border-black dark:hover:border-white py-3 font-bold tracking-[0.2em] text-[10px] uppercase transition-all flex items-center justify-center gap-2"
+                          className="mt-3 w-full bg-white dark:bg-[#141414] border border-gray-200 dark:border-[#333333] text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white hover:border-black dark:hover:border-white py-3 font-bold tracking-[0.2em] text-[10px] uppercase transition-all flex items-center justify-center gap-2"
                         >
                           <RefreshCw size={14} className={state.isLoading ? "animate-spin" : ""} />
                           {state.isLoading ? "Regenerating..." : "Regenerate Analysis"}
@@ -1373,6 +1386,26 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+            {activeTab === 'apply' && (
+              <div className="flex-1 overflow-auto bg-[#F9F9F9] dark:bg-[#0A0A0A]">
+                <ApplyPanel
+                  jobUrl={jobUrl || undefined}
+                  detectedCompany={state.detectedCompany}
+                  detectedJobTitle={state.detectedJobTitle}
+                  autofillData={extractAutofillData(
+                    state.currentScore?.parsedCv,
+                    user?.email || '',
+                    state.coverLetter,
+                    state.chosenOutreachId
+                      ? (state.outreachOptions.find(o => o.id === state.chosenOutreachId)?.linkedInMessage || '')
+                      : ''
+                  )}
+                  chosenOutreach={state.outreachOptions.find(o => o.id === state.chosenOutreachId) || null}
+                  onDownloadPDF={handleDownloadPDF}
+                  onDownloadDOCX={handleDownloadDOCX}
+                />
               </div>
             )}
           </>
