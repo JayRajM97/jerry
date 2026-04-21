@@ -1,22 +1,28 @@
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { 
-  CVSection, 
-  Suggestion, 
-  ATSScore, 
-  RewriteMode, 
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  CVSection,
+  Suggestion,
+  ATSScore,
+  RewriteMode,
   AppState,
   HistoryItem,
   AppView,
-  UserProfile
+  UserProfile,
+  ApplicationStatus,
+  OutreachOption,
 } from './types';
 import { Copy, Check, RefreshCw, Sparkles, Moon, Sun } from 'lucide-react';
-import { 
-  analyzeResume, 
+import {
+  analyzeResume,
   calculateATSScore,
   generateTopChoiceMessage,
   generateWellfoundMessage,
-  generateIntroduction
+  generateIntroduction,
+  generateOutreachOptions,
+  generateCoverLetter,
+  gatherCompanyIntel,
+  fetchAndParseJobUrl,
 } from './services/geminiService';
 import { authService } from './services/authService';
 import { databaseService } from './services/databaseService';
@@ -25,6 +31,11 @@ import ATSScoreCard from './components/ATSScoreCard';
 import RichEditor from './components/RichEditor';
 import RationalePanel from './components/RationalePanel';
 import LoginScreen from './components/LoginScreen';
+import ApplicationStatusBadge from './components/ApplicationStatusBadge';
+import OutreachSelector from './components/OutreachSelector';
+import CompanyIntelCard from './components/CompanyIntelCard';
+import CoverLetterPanel from './components/CoverLetterPanel';
+import JobUrlInput from './components/JobUrlInput';
 import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
 // @ts-ignore
@@ -108,7 +119,7 @@ const App: React.FC = () => {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const [state, setState] = useState<AppState>({
+  const EMPTY_STATE: AppState = {
     originalSections: [],
     suggestions: [],
     skippableContent: [],
@@ -118,10 +129,20 @@ const App: React.FC = () => {
     topChoiceMessage: '',
     wellfoundMessage: '',
     introductionMessage: '',
+    outreachOptions: [],
+    chosenOutreachId: null,
+    companyIntel: null,
+    coverLetter: '',
+    isCoverLetterLoading: false,
+    jdFetchStatus: 'idle',
+    detectedCompany: '',
+    detectedJobTitle: '',
     mode: RewriteMode.BALANCED,
     isLoading: false,
-    loadingStep: ''
-  });
+    loadingStep: '',
+  };
+
+  const [state, setState] = useState<AppState>(EMPTY_STATE);
 
   const [activeTab, setActiveTab] = useState<'input' | 'analyze' | 'preview'>('input');
   const [inputMethod, setInputMethod] = useState<'upload' | 'paste'>('paste');
@@ -199,7 +220,7 @@ const App: React.FC = () => {
   };
 
   const saveToHistory = async (
-    currentSections: CVSection[], 
+    currentSections: CVSection[],
     currentSuggestions: Suggestion[],
     currentSkippable: string[],
     currentProfileSuggestions: any[],
@@ -207,58 +228,73 @@ const App: React.FC = () => {
     scoreOptimized: ATSScore | null,
     topChoiceMsg: string,
     wellfoundMsg: string,
-    introMsg: string
+    introMsg: string,
+    outreachOpts: OutreachOption[],
+    chosenId: OutreachOption['id'] | null,
+    intel: any,
+    coverLetter: string,
+    companyName: string,
+    jobUrl?: string,
   ) => {
     if (!user) return;
 
     const finalHtml = compileFinalHtml(currentSections, currentSuggestions);
-    
+
     const newItem: HistoryItem = {
       id: Date.now().toString(),
       userId: user.id,
       timestamp: Date.now(),
       jobTitle: extractJobTitle(jdText),
+      companyName: companyName || undefined,
+      jobUrl: jobUrl || undefined,
+      applicationStatus: 'saved',
       jdText: jdText,
       originalCvHtml: cvHtml,
       optimizedCvHtml: finalHtml,
       topChoiceMessage: topChoiceMsg,
       wellfoundMessage: wellfoundMsg,
       introductionMessage: introMsg,
+      coverLetter: coverLetter || undefined,
+      companyIntel: intel || undefined,
+      outreachOptions: outreachOpts.length ? outreachOpts : undefined,
+      chosenOutreachId: chosenId || undefined,
       scores: {
         original: scoreOriginal,
-        optimized: scoreOptimized
+        optimized: scoreOptimized,
       },
       analysisData: {
         sections: currentSections,
         suggestions: currentSuggestions,
         skippableContent: currentSkippable,
-        profileSuggestions: currentProfileSuggestions
-      }
+        profileSuggestions: currentProfileSuggestions,
+      },
     };
-    
-    // Optimistic Update
+
     setHistory(prev => [newItem, ...prev]);
-    
-    // Async DB Save
     await databaseService.saveHistoryItem(user.id, newItem);
   };
 
   const loadHistoryItem = (item: HistoryItem) => {
     setCvHtml(item.originalCvHtml);
     setJdText(item.jdText);
+    const opts = item.outreachOptions || [];
     setState({
+      ...EMPTY_STATE,
       originalSections: item.analysisData.sections,
       suggestions: item.analysisData.suggestions,
       skippableContent: item.analysisData.skippableContent || [],
       profileSuggestions: item.analysisData.profileSuggestions || [],
       currentScore: item.scores.original,
       suggestedScore: item.scores.optimized,
-      topChoiceMessage: item.topChoiceMessage || '',
-      wellfoundMessage: item.wellfoundMessage || '',
+      topChoiceMessage: opts[0]?.linkedInMessage || item.topChoiceMessage || '',
+      wellfoundMessage: opts[1]?.linkedInMessage || item.wellfoundMessage || '',
       introductionMessage: item.introductionMessage || '',
-      mode: RewriteMode.BALANCED,
-      isLoading: false,
-      loadingStep: ''
+      outreachOptions: opts,
+      chosenOutreachId: item.chosenOutreachId || null,
+      companyIntel: item.companyIntel || null,
+      coverLetter: item.coverLetter || '',
+      detectedCompany: item.companyName || '',
+      detectedJobTitle: item.jobTitle || '',
     });
     setFinalPreviewHtml(item.optimizedCvHtml);
     setCurrentView('workspace');
@@ -269,19 +305,7 @@ const App: React.FC = () => {
     setCvHtml(masterCvHtml);
     setJdText('');
     setFinalPreviewHtml('');
-    setState({
-      originalSections: [],
-      suggestions: [],
-      skippableContent: [],
-      profileSuggestions: [],
-      currentScore: null,
-      suggestedScore: null,
-      topChoiceMessage: '',
-      wellfoundMessage: '',
-      mode: RewriteMode.BALANCED,
-      isLoading: false,
-      loadingStep: ''
-    });
+    setState(prev => ({ ...EMPTY_STATE, mode: prev.mode }));
     setActiveTab('input');
     setCurrentView('workspace');
   };
@@ -476,85 +500,83 @@ const App: React.FC = () => {
 
   const handleGenerate = async () => {
     if (!cvHtml || !jdText) return;
-    
+
     setState(prev => ({ ...prev, isLoading: true, loadingStep: 'Starting' }));
     try {
       setState(prev => ({ ...prev, loadingStep: 'Evaluating match' }));
       const currentScore = await calculateATSScore(cvHtml, jdText);
       await new Promise(resolve => setTimeout(resolve, 1500));
-      
+
       setState(prev => ({ ...prev, loadingStep: 'Optimizing phrasing' }));
       const { sections, suggestions, skippableContent, profileSuggestions } = await analyzeResume(
-        cvHtml, 
-        jdText, 
+        cvHtml,
+        jdText,
         state.mode,
         currentScore.missing_required_skills || [],
         currentScore.weak_signals || []
       );
 
-      // Generate Top Choice Message and Wellfound Message in parallel
-      setState(prev => ({ ...prev, loadingStep: 'Drafting messages' }));
-      const [topChoiceMsg, wellfoundMsg, introMsg] = await Promise.all([
+      const detectedCompany = state.detectedCompany || currentScore.parsedJd?.company_name || '';
+      const detectedJobTitle = state.detectedJobTitle || currentScore.parsedJd?.job_title || '';
+
+      // Research company intel in parallel with message generation
+      setState(prev => ({ ...prev, loadingStep: 'Drafting outreach & researching company' }));
+      const [introMsg, intelResult] = await Promise.all([
+        generateIntroduction(currentScore.parsedCv, currentScore.parsedJd),
+        detectedCompany ? gatherCompanyIntel(detectedCompany, detectedJobTitle).catch(() => null) : Promise.resolve(null),
+      ]);
+
+      setState(prev => ({ ...prev, companyIntel: intelResult, loadingStep: 'Crafting outreach options' }));
+
+      const [topChoiceMsg, wellfoundMsg, outreachOpts] = await Promise.all([
         generateTopChoiceMessage(cvHtml, jdText),
         generateWellfoundMessage(cvHtml, jdText),
-        generateIntroduction(currentScore.parsedCv, currentScore.parsedJd)
+        generateOutreachOptions(cvHtml, jdText, intelResult),
       ]);
 
       let optimizedFullHtml = sections.map(s => s.optimizedHtmlContent || s.htmlContent).join('');
       let appliedSuggestions = suggestions.map(s => ({ ...s, applied: true }));
-      
+
       await new Promise(resolve => setTimeout(resolve, 1500));
 
       setState(prev => ({ ...prev, loadingStep: 'Finalizing scores' }));
-      let suggestedScore = await calculateATSScore(
-        optimizedFullHtml,
-        jdText,
-        currentScore.parsedJd
-      );
+      let suggestedScore = await calculateATSScore(optimizedFullHtml, jdText, currentScore.parsedJd);
 
       // --- INSTRUMENTATION ---
       const hashInitialText = hashString(cvHtml);
       const hashOptimizedText = hashString(optimizedFullHtml);
-      const hashInitialJson = hashString(JSON.stringify(currentScore.parsedCv || {}));
-      const hashOptimizedJson = hashString(JSON.stringify(suggestedScore.parsedCv || {}));
-      
-      console.log("--- INSTRUMENTATION ---");
-      console.log("hash(initial_resume_text):", hashInitialText);
-      console.log("hash(optimized_resume_text):", hashOptimizedText);
-      console.log("hash(initial_resume_json):", hashInitialJson);
-      console.log("hash(optimized_resume_json):", hashOptimizedJson);
-      
-      if (hashInitialText === hashOptimizedText) {
-          console.warn("Pipeline is not applying optimization (texts are identical).");
-      }
-      if (hashInitialJson === hashOptimizedJson) {
-          console.warn("Pipeline is not applying optimization (JSONs are identical).");
-      }
+      if (hashInitialText === hashOptimizedText) console.warn("Pipeline: texts identical.");
+      if (hashString(JSON.stringify(currentScore.parsedCv || {})) === hashString(JSON.stringify(suggestedScore.parsedCv || {}))) console.warn("Pipeline: JSONs identical.");
 
       // --- REGRESSION GUARDRAIL ---
       let attempts = 0;
       while (suggestedScore.total < currentScore.total && attempts < 2) {
-         attempts++;
-         setState(prev => ({ ...prev, loadingStep: `Fixing score regression (Attempt ${attempts})...` }));
-         
-         // Revert all suggestions to ensure monotonicity
-         appliedSuggestions = appliedSuggestions.map(s => ({ ...s, applied: false }));
-         optimizedFullHtml = sections.map(s => s.htmlContent).join(''); 
-         
-         suggestedScore = await calculateATSScore(optimizedFullHtml, jdText, currentScore.parsedJd);
+        attempts++;
+        setState(prev => ({ ...prev, loadingStep: `Fixing score regression (Attempt ${attempts})...` }));
+        appliedSuggestions = appliedSuggestions.map(s => ({ ...s, applied: false }));
+        optimizedFullHtml = sections.map(s => s.htmlContent).join('');
+        suggestedScore = await calculateATSScore(optimizedFullHtml, jdText, currentScore.parsedJd);
       }
 
       if (suggestedScore.total < currentScore.total) {
-         // Hard fallback
-         suggestedScore = currentScore;
-         optimizedFullHtml = cvHtml;
-         appliedSuggestions = appliedSuggestions.map(s => ({ ...s, applied: false }));
-         console.warn("Score regression guardrail triggered: Reverted to initial score.");
+        suggestedScore = currentScore;
+        optimizedFullHtml = cvHtml;
+        appliedSuggestions = appliedSuggestions.map(s => ({ ...s, applied: false }));
+        console.warn("Score regression guardrail triggered.");
       }
 
-      // --- SAVE HISTORY ---
-      await saveToHistory(sections, appliedSuggestions, skippableContent, profileSuggestions, currentScore, suggestedScore, topChoiceMsg, wellfoundMsg, introMsg);
-      // --------------------
+      // Use outreach option A as the backward-compat top choice message
+      const topMsg = outreachOpts[0]?.linkedInMessage || topChoiceMsg;
+      const wfMsg = outreachOpts[2]?.linkedInMessage || wellfoundMsg;
+
+      await saveToHistory(
+        sections, appliedSuggestions, skippableContent, profileSuggestions,
+        currentScore, suggestedScore,
+        topMsg, wfMsg, introMsg,
+        outreachOpts, null, intelResult, '',
+        detectedCompany,
+        undefined,
+      );
 
       setState(prev => ({
         ...prev,
@@ -564,10 +586,15 @@ const App: React.FC = () => {
         profileSuggestions,
         currentScore,
         suggestedScore,
-        topChoiceMessage: topChoiceMsg,
-        wellfoundMessage: wellfoundMsg,
+        topChoiceMessage: topMsg,
+        wellfoundMessage: wfMsg,
         introductionMessage: introMsg,
-        isLoading: false
+        outreachOptions: outreachOpts,
+        chosenOutreachId: null,
+        companyIntel: intelResult,
+        detectedCompany,
+        detectedJobTitle,
+        isLoading: false,
       }));
       setActiveTab('analyze');
     } catch (error: any) {
@@ -575,6 +602,43 @@ const App: React.FC = () => {
       setState(prev => ({ ...prev, isLoading: false }));
       alert("Analysis failed. Please try again.");
     }
+  };
+
+  const handleFetchJobUrl = async (url: string) => {
+    setState(prev => ({ ...prev, jdFetchStatus: 'fetching' }));
+    try {
+      const { jdText: fetched, companyName, jobTitle } = await fetchAndParseJobUrl(url);
+      setJdText(fetched);
+      setState(prev => ({
+        ...prev,
+        jdFetchStatus: 'success',
+        detectedCompany: companyName || prev.detectedCompany,
+        detectedJobTitle: jobTitle || prev.detectedJobTitle,
+      }));
+    } catch (_) {
+      setState(prev => ({ ...prev, jdFetchStatus: 'fallback' }));
+    }
+  };
+
+  const handleChooseOutreach = (id: OutreachOption['id']) => {
+    setState(prev => ({ ...prev, chosenOutreachId: id }));
+  };
+
+  const handleGenerateCoverLetter = async () => {
+    const chosen = state.outreachOptions.find(o => o.id === state.chosenOutreachId);
+    if (!chosen) return;
+    setState(prev => ({ ...prev, isCoverLetterLoading: true }));
+    try {
+      const cl = await generateCoverLetter(cvHtml, jdText, state.companyIntel, chosen);
+      setState(prev => ({ ...prev, coverLetter: cl, isCoverLetterLoading: false }));
+    } catch (_) {
+      setState(prev => ({ ...prev, isCoverLetterLoading: false }));
+    }
+  };
+
+  const handleStatusChange = async (itemId: string, status: ApplicationStatus) => {
+    setHistory(prev => prev.map(i => i.id === itemId ? { ...i, applicationStatus: status } : i));
+    if (user) await databaseService.updateApplicationStatus(user.id, itemId, status);
   };
 
   const updateSuggestionText = (id: string, newHtml: string) => {
@@ -788,12 +852,21 @@ const App: React.FC = () => {
               ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {history.map(item => (
-                          <div key={item.id} className="uber-card p-6 flex flex-col h-64 hover:shadow-lg transition-shadow cursor-pointer group" onClick={() => loadHistoryItem(item)}>
+                          <div key={item.id} className="uber-card p-6 flex flex-col h-72 hover:shadow-lg transition-shadow cursor-pointer group" onClick={() => loadHistoryItem(item)}>
                               <div className="flex-1">
-                                  <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2">
-                                      {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                  </p>
-                                  <h3 className="text-xl font-bold mb-2 line-clamp-2">{item.jobTitle}</h3>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
+                                        {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                    </p>
+                                    <ApplicationStatusBadge
+                                      status={item.applicationStatus || 'saved'}
+                                      onChange={(status) => handleStatusChange(item.id, status)}
+                                    />
+                                  </div>
+                                  <h3 className="text-xl font-bold mb-1 line-clamp-2">{item.jobTitle}</h3>
+                                  {item.companyName && (
+                                    <p className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-2">{item.companyName}</p>
+                                  )}
                                   <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-3">{item.jdText}</p>
                               </div>
                               <div className="mt-4 pt-4 border-t border-gray-100 dark:border-[#333333] flex justify-between items-end">
@@ -863,14 +936,13 @@ const App: React.FC = () => {
                 {/* Right Column: JD + Controls */}
                 <div className="flex-1 flex flex-col min-h-0 gap-6">
                   <div className="flex-1 flex flex-col bg-white dark:bg-[#141414] border border-gray-200 dark:border-[#333333] shadow-sm min-h-0">
-                    <div className="p-4 border-b border-gray-100 dark:border-[#333333] shrink-0">
-                        <h2 className="text-lg font-bold tracking-tight dark:text-white">Job Description</h2>
-                    </div>
-                    <textarea 
-                      className="flex-1 w-full uber-input resize-none text-sm leading-relaxed bg-white dark:bg-[#141414] dark:text-white border-0 focus:ring-0 p-4 font-mono"
-                      value={jdText}
-                      onChange={(e) => setJdText(e.target.value)}
-                      placeholder="Paste the target JD here..."
+                    <JobUrlInput
+                      jdText={jdText}
+                      onJdChange={setJdText}
+                      fetchStatus={state.jdFetchStatus}
+                      onFetchUrl={handleFetchJobUrl}
+                      detectedCompany={state.detectedCompany}
+                      detectedJobTitle={state.detectedJobTitle}
                     />
                   </div>
 
@@ -924,6 +996,15 @@ const App: React.FC = () => {
 
                 <div className="p-8 md:p-12 max-w-[1600px] mx-auto w-full">
                   
+                  {/* Company Intel */}
+                  {(state.companyIntel || state.detectedCompany) && (
+                    <CompanyIntelCard
+                      intel={state.companyIntel}
+                      isLoading={false}
+                      companyName={state.detectedCompany}
+                    />
+                  )}
+
                   {/* Top Section: Scores (50-50) */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
                      <ATSScoreCard title="Initial Match" score={state.currentScore} highlightColor="#000000" />
@@ -981,8 +1062,13 @@ const App: React.FC = () => {
                              </a>
                           )}
                           <a href="#sec-messages" className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:border-l-2 hover:border-blue-600 dark:hover:border-blue-400 -ml-[2px] transition-all truncate">
-                             Application Messages
+                             Outreach
                           </a>
+                          {state.coverLetter && (
+                            <a href="#sec-cover-letter" className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:border-l-2 hover:border-blue-600 dark:hover:border-blue-400 -ml-[2px] transition-all truncate">
+                              Cover Letter
+                            </a>
+                          )}
                        </nav>
                        
                        <button 
@@ -1127,114 +1213,60 @@ const App: React.FC = () => {
                            )}
 
                            {/* Messages */}
-                           <div id="sec-messages" className="scroll-mt-8 grid grid-cols-1 xl:grid-cols-2 gap-8">
+                           <div id="sec-messages" className="scroll-mt-8 space-y-8">
                               {/* Introduction Message */}
-                              <div className="uber-card overflow-hidden border-2 border-black dark:border-[#333333] flex flex-col h-full xl:col-span-2">
+                              <div className="uber-card overflow-hidden border-2 border-black dark:border-[#333333] flex flex-col">
                                  <div className="bg-black dark:bg-[#1A1A1A] text-white px-8 py-4 flex justify-between items-center">
                                     <h4 className="font-bold uppercase tracking-widest text-[10px]">"Tell Me About Yourself" (Gayle McDowell Style)</h4>
                                  </div>
-                                 <div className="p-8 bg-gray-50 dark:bg-[#1A1A1A] flex-1 flex flex-col">
+                                 <div className="p-8 bg-gray-50 dark:bg-[#1A1A1A] flex flex-col">
                                     <div className="mb-6 text-sm text-gray-600 flex justify-between items-start">
                                       <div>
                                         <p className="font-bold mb-1">Your 60-Second Intro</p>
                                         <p className="text-xs opacity-70">Structured as: Present → Past → Pattern → Forward. Tailored to the JD domain.</p>
                                       </div>
-                                      <button 
-                                         onClick={() => {
-                                            navigator.clipboard.writeText(state.introductionMessage || '');
-                                            showToast("Intro message copied!");
-                                         }}
+                                      <button
+                                         onClick={() => { navigator.clipboard.writeText(state.introductionMessage || ''); showToast("Intro message copied!"); }}
                                          className="p-2 hover:bg-gray-200 dark:hover:bg-[#333333] rounded-full transition-colors text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
                                          title="Copy to Clipboard"
                                        >
                                          <Copy size={18} />
                                        </button>
                                     </div>
-                                    <textarea 
-                                      className="w-full uber-input text-sm font-sans flex-1 bg-white dark:bg-[#141414] dark:text-white p-4 border-0 focus:ring-0 resize-none leading-relaxed"
+                                    <textarea
+                                      className="w-full uber-input text-sm font-sans bg-white dark:bg-[#141414] dark:text-white p-4 border-0 focus:ring-0 resize-none leading-relaxed"
                                       rows={6}
                                       value={state.introductionMessage || ''}
-                                      onChange={(e) => {
-                                        setState(s => ({ ...s, introductionMessage: e.target.value }));
-                                      }}
+                                      onChange={(e) => setState(s => ({ ...s, introductionMessage: e.target.value }))}
                                       placeholder="Draft your intro here..."
                                     />
                                  </div>
                               </div>
 
-                              {/* LinkedIn Message */}
-                              <div className="uber-card overflow-hidden border-2 border-black dark:border-[#333333] flex flex-col h-full">
-                                 <div className="bg-black dark:bg-[#1A1A1A] text-white px-8 py-4 flex justify-between items-center">
-                                    <h4 className="font-bold uppercase tracking-widest text-[10px]">LinkedIn "Top Choice"</h4>
-                                    <span className="text-[10px] bg-white dark:bg-[#141414] text-black dark:text-white px-2 py-0.5 font-bold rounded">{(state.topChoiceMessage || '').length}/400</span>
-                                 </div>
-                                 <div className="p-8 bg-gray-50 dark:bg-[#1A1A1A] flex-1 flex flex-col">
-                                    <div className="mb-6 text-sm text-gray-600 flex justify-between items-start">
-                                      <div>
-                                        <p className="font-bold mb-1">Mark this job as a top choice</p>
-                                        <p className="text-xs opacity-70">Applicants who do this are 43% more likely to hear back.</p>
-                                      </div>
-                                      <button 
-                                         onClick={() => {
-                                            navigator.clipboard.writeText(state.topChoiceMessage || '');
-                                            showToast("LinkedIn message copied!");
-                                         }}
-                                         className="p-2 hover:bg-gray-200 dark:hover:bg-[#333333] rounded-full transition-colors text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
-                                         title="Copy to Clipboard"
-                                       >
-                                         <Copy size={18} />
-                                       </button>
-                                    </div>
-                                    <textarea 
-                                      className="w-full uber-input text-sm font-sans flex-1 bg-white dark:bg-[#141414] dark:text-white p-4 border-0 focus:ring-0 resize-none leading-relaxed"
-                                      rows={12}
-                                      value={state.topChoiceMessage || ''}
-                                      onChange={(e) => {
-                                        if (e.target.value.length <= 400) {
-                                          setState(s => ({ ...s, topChoiceMessage: e.target.value }));
-                                        }
-                                      }}
-                                      placeholder="Draft your message here..."
-                                    />
-                                 </div>
+                              {/* Outreach Options */}
+                              <div>
+                                <div className="flex items-center gap-3 mb-6">
+                                  <h3 className="font-bold text-lg">Outreach Strategy</h3>
+                                  <span className="text-xs text-gray-400 dark:text-gray-600">Choose your approach and get a ready-to-send message</span>
+                                </div>
+                                <OutreachSelector
+                                  options={state.outreachOptions}
+                                  chosenId={state.chosenOutreachId}
+                                  onChoose={handleChooseOutreach}
+                                  onGenerateCoverLetter={handleGenerateCoverLetter}
+                                  isCoverLetterLoading={state.isCoverLetterLoading}
+                                  coverLetterReady={!!state.coverLetter}
+                                />
                               </div>
 
-                              {/* Wellfound Message */}
-                              <div className="uber-card overflow-hidden border-2 border-black dark:border-[#333333] flex flex-col h-full">
-                                 <div className="bg-black dark:bg-[#1A1A1A] text-white px-8 py-4 flex justify-between items-center">
-                                    <h4 className="font-bold uppercase tracking-widest text-[10px]">Wellfound Interest</h4>
-                                    <span className="text-[10px] bg-white dark:bg-[#141414] text-black dark:text-white px-2 py-0.5 font-bold rounded">{(state.wellfoundMessage || '').length}/400</span>
-                                 </div>
-                                 <div className="p-8 bg-gray-50 dark:bg-[#1A1A1A] flex-1 flex flex-col">
-                                    <div className="mb-6 text-sm text-gray-600 flex justify-between items-start">
-                                      <div>
-                                        <p className="font-bold mb-1">What interests you?</p>
-                                        <p className="text-xs opacity-70">Honest and raw response tailored for Wellfound.</p>
-                                      </div>
-                                      <button 
-                                         onClick={() => {
-                                            navigator.clipboard.writeText(state.wellfoundMessage || '');
-                                            showToast("Wellfound message copied!");
-                                         }}
-                                         className="p-2 hover:bg-gray-200 dark:hover:bg-[#333333] rounded-full transition-colors text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
-                                         title="Copy to Clipboard"
-                                       >
-                                         <Copy size={18} />
-                                       </button>
-                                    </div>
-                                    <textarea 
-                                      className="w-full uber-input text-sm font-sans flex-1 bg-white dark:bg-[#141414] dark:text-white p-4 border-0 focus:ring-0 resize-none leading-relaxed"
-                                      rows={12}
-                                      value={state.wellfoundMessage || ''}
-                                      onChange={(e) => {
-                                        if (e.target.value.length <= 400) {
-                                          setState(s => ({ ...s, wellfoundMessage: e.target.value }));
-                                        }
-                                      }}
-                                      placeholder="Draft your message here..."
-                                    />
-                                 </div>
-                              </div>
+                              {/* Cover Letter */}
+                              {(state.coverLetter || state.isCoverLetterLoading) && (
+                                <CoverLetterPanel
+                                  html={state.coverLetter}
+                                  isLoading={state.isCoverLetterLoading}
+                                  onChange={(html) => setState(s => ({ ...s, coverLetter: html }))}
+                                />
+                              )}
                            </div>
                          </>
                        )}
