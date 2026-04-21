@@ -1405,6 +1405,11 @@ const App: React.FC = () => {
                   chosenOutreach={state.outreachOptions.find(o => o.id === state.chosenOutreachId) || null}
                   onDownloadPDF={handleDownloadPDF}
                   onDownloadDOCX={handleDownloadDOCX}
+                  jdText={jdText}
+                  companyType={
+                    (state.currentScore?.parsedJd?.company_type as 'consumer' | 'enterprise' | 'ai_startup') || 'ai_startup'
+                  }
+                  parsedCv={state.currentScore?.parsedCv}
                 />
               </div>
             )}

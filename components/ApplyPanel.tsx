@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import {
   ExternalLink, Copy, Check, Terminal, Upload,
   Linkedin, Mail, FileText, ChevronDown, ChevronUp,
-  ClipboardCopy, CheckSquare, Square
+  ClipboardCopy, CheckSquare, Square, Sparkles, ChevronRight
 } from 'lucide-react';
 import { OutreachOption } from '../types';
-import { AutofillData, generateAutofillScript } from '../utils/autofillScript';
+import { AutofillData, generateAutofillScript, Platform, PLATFORM_LABELS, detectPlatform } from '../utils/autofillScript';
+import SmartQA from './SmartQA';
 
 interface Props {
   jobUrl?: string;
@@ -15,6 +16,9 @@ interface Props {
   chosenOutreach: OutreachOption | null;
   onDownloadPDF: () => void;
   onDownloadDOCX: () => void;
+  jdText?: string;
+  companyType?: 'consumer' | 'enterprise' | 'ai_startup';
+  parsedCv?: any;
 }
 
 function CopyBtn({ text, label, mono = false }: { text: string; label: string; mono?: boolean }) {
@@ -44,6 +48,15 @@ function StepHeader({ num, title, subtitle, done }: { num: number; title: string
   );
 }
 
+const PLATFORM_TIPS: Partial<Record<Platform, string>> = {
+  linkedin: 'Click "Easy Apply" on the job posting — the sidebar modal will open. Run the script while the modal is visible.',
+  workday: 'Workday wraps forms in iframes. If fields don\'t fill, the form may be cross-origin — use the field-by-field backup below instead.',
+  greenhouse: 'Confirm you\'re on a boards.greenhouse.io page. The script uses Greenhouse\'s standard field IDs.',
+  lever: 'Confirm you\'re on a jobs.lever.co page. Full Name is filled as a single field.',
+  ashby: 'Confirm you\'re on an ashbyhq.com page. Uses data-testid selectors.',
+  keka: 'Confirm you\'re on a keka.com careers page.',
+};
+
 const CHECKLIST_ITEMS = [
   { id: 'opened', label: 'Opened application page' },
   { id: 'autofilled', label: 'Ran autofill script' },
@@ -61,12 +74,20 @@ const ApplyPanel: React.FC<Props> = ({
   chosenOutreach,
   onDownloadPDF,
   onDownloadDOCX,
+  jdText = '',
+  companyType = 'ai_startup',
+  parsedCv,
 }) => {
   const [scriptExpanded, setScriptExpanded] = useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [scriptCopied, setScriptCopied] = useState(false);
+  const [qaExpanded, setQaExpanded] = useState(false);
 
-  const script = generateAutofillScript(autofillData);
+  const autoDetected = detectPlatform(jobUrl || '');
+  const [manualPlatform, setManualPlatform] = useState<Platform>('auto');
+  const effectivePlatform: Platform = manualPlatform === 'auto' ? (autoDetected === 'generic' ? 'generic' : autoDetected) : manualPlatform;
+
+  const script = generateAutofillScript(autofillData, effectivePlatform);
 
   const toggleCheck = (id: string) => setChecked(p => ({ ...p, [id]: !p[id] }));
 
@@ -137,6 +158,34 @@ const ApplyPanel: React.FC<Props> = ({
           done={checked.autofilled}
         />
 
+        {/* Platform Picker */}
+        <div className="mb-5 flex items-center gap-3">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 shrink-0">Platform</label>
+          <select
+            value={manualPlatform}
+            onChange={e => setManualPlatform(e.target.value as Platform)}
+            className="uber-input text-sm py-2 px-3 bg-white dark:bg-[#0A0A0A] dark:text-white flex-1 max-w-xs"
+          >
+            {(Object.keys(PLATFORM_LABELS) as Platform[]).map(p => (
+              <option key={p} value={p}>
+                {p === 'auto'
+                  ? `Auto-detect${autoDetected !== 'generic' ? ` (${PLATFORM_LABELS[autoDetected]})` : ''}`
+                  : PLATFORM_LABELS[p]}
+              </option>
+            ))}
+          </select>
+          {effectivePlatform !== 'generic' && effectivePlatform !== 'auto' && (
+            <span className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-widest">{PLATFORM_LABELS[effectivePlatform]} selectors active</span>
+          )}
+        </div>
+
+        {/* Platform tip */}
+        {PLATFORM_TIPS[effectivePlatform] && (
+          <div className="mb-5 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-900 rounded p-3">
+            <p className="text-xs text-blue-700 dark:text-blue-300">{PLATFORM_TIPS[effectivePlatform]}</p>
+          </div>
+        )}
+
         {/* Instructions */}
         <div className="bg-gray-50 dark:bg-[#0A0A0A] border border-gray-200 dark:border-[#222] rounded p-5 mb-5 space-y-3">
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">How to use</p>
@@ -199,6 +248,31 @@ const ApplyPanel: React.FC<Props> = ({
           {checked.autofilled ? <CheckSquare size={14} className="text-green-500" /> : <Square size={14} />}
           Mark as done
         </button>
+      </div>
+
+      {/* ── Step 2.5: Smart Q&A ── */}
+      <div className="uber-card p-8">
+        <button
+          onClick={() => setQaExpanded(e => !e)}
+          className="w-full flex items-start justify-between text-left"
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 bg-black dark:bg-white text-white dark:text-black">
+              <Sparkles size={14} />
+            </div>
+            <div>
+              <h3 className="font-bold text-base">Custom Question Answers</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Paste any application question — get short + medium answers in Jay's voice</p>
+            </div>
+          </div>
+          {qaExpanded ? <ChevronUp size={16} className="shrink-0 mt-1 text-gray-400" /> : <ChevronRight size={16} className="shrink-0 mt-1 text-gray-400" />}
+        </button>
+
+        {qaExpanded && (
+          <div className="mt-6">
+            <SmartQA jdText={jdText} companyType={companyType} parsedCv={parsedCv} />
+          </div>
+        )}
       </div>
 
       {/* ── Step 3: Upload Resume ── */}
