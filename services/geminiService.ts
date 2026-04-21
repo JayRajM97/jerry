@@ -891,3 +891,89 @@ export async function fetchAndParseJobUrl(
     jobTitle: result.jobTitle || undefined,
   };
 }
+
+export async function generateApplicationAnswer(
+  question: string,
+  jdText: string,
+  companyType: 'consumer' | 'enterprise' | 'ai_startup',
+  parsedCv: any
+): Promise<{ short: string; medium: string }> {
+  const personalizationMap = {
+    consumer: `
+COMPANY TYPE: Consumer Tech
+- Highlight consumer product experience and large user bases
+- Use examples: Teleport (100K+ users, consumer visa flows), Tickertape (gamification, growth loops, 20%+ CTR notifications)
+- Emphasize: user empathy, growth mindset, simplifying complex flows
+- Tone: energetic, product-led, user-obsessed`,
+    enterprise: `
+COMPANY TYPE: Enterprise / B2B
+- Show curiosity about the company's product and domain
+- Use examples: ShopOS (enterprise AI agents, Amazon Copilot ~$50K run-rate), Teleport B2B white-label (Yatra, MMT, TravClan → ₹60L/month)
+- Emphasize: systems thinking, scalability, AI-driven problem solving, efficiency gains
+- Tone: structured, strategic, problem-solving`,
+    ai_startup: `
+COMPANY TYPE: AI / Startup
+- Lead with ShopOS AI agent work
+- Use examples: Photography Agent (₹7/image vs ~$12K shoots, >95% cost reduction), Loops (10+ beta brands), Amazon Copilot ($50K run-rate)
+- Emphasize: 0→1 ownership, agentic product thinking, cost/efficiency impact
+- Tone: builder mentality, sharp, excited about the problem space`,
+  };
+
+  const cvSummary = parsedCv
+    ? `Candidate: ${parsedCv.candidate_name || 'Jay'}. Roles: ${(parsedCv.experience || []).map((e: any) => `${e.title} at ${e.company}`).join(', ')}.`
+    : `Senior PM with experience at ShopOS (AI agents), Teleport (travel-tech, 100K users), Tickertape (fintech growth), Board Infinity (EdTech).`;
+
+  const prompt = `You are answering a job application question on behalf of Jay (Jayraj Makhar), a Senior Product Manager.
+Use his exact voice: specific, human, metric-driven. Never sound like AI.
+
+NEVER say: "thrilled", "excited to apply", "perfect fit", "synergy", "leverage", "passionate about"
+Language: simple, very humane, sharp. Sound like a person, not a resume.
+Always tie to a specific metric or example.
+
+${personalizationMap[companyType]}
+
+Jay's background summary:
+${cvSummary}
+
+Full JD context:
+${jdText.slice(0, 3000)}
+
+APPLICATION QUESTION:
+${question}
+
+Generate two answers:
+
+SHORT (2-4 bullet points) — for character-limited fields (under ~400 chars total)
+- Ultra crisp, one strong example or metric per bullet
+- No intros or headers
+
+MEDIUM (5-7 bullet points) — for open text fields
+- Line 1: specific hook about why this role/company
+- Lines 2-3: 2 relevant experience points with concrete numbers
+- Lines 4-5: why this is the right next move for Jay
+
+Return JSON: { "short": "bullet1\\n• bullet2\\n• ...", "medium": "bullet1\\n• bullet2\\n• ..." }
+Each answer starts directly with "•" bullet points, no intro text.`;
+
+  const response = await callGeminiWithRetry({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          short: { type: Type.STRING },
+          medium: { type: Type.STRING },
+        },
+        required: ["short", "medium"],
+      },
+    },
+  });
+
+  const result = JSON.parse(response.text);
+  return {
+    short: result.short || '',
+    medium: result.medium || '',
+  };
+}
