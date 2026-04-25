@@ -80,45 +80,18 @@ export interface AnalysisData {
   profileSuggestions?: ProfileSuggestion[];
 }
 
-export type ApplicationStatus = 'saved' | 'applied' | 'interview' | 'rejected' | 'offer';
-
-export interface OutreachOption {
-  id: 'direct' | 'insight' | 'value_first';
-  label: string;
-  strategy: string;
-  linkedInMessage: string;
-  emailSubject: string;
-  emailBody: string;
-}
-
-export interface CompanyIntel {
-  hiringManager?: string;
-  teamContext?: string;
-  recentNews?: string[];
-  productContext?: string;
-  companySize?: string;
-  stage?: string;
-  fetchedAt: number;
-}
-
 export interface HistoryItem {
   id: string;
-  userId: string;
+  userId: string; // Added for DB ownership
   timestamp: number;
-  jobTitle: string;
+  jobTitle: string; 
   companyName?: string;
-  jobUrl?: string;
-  applicationStatus?: ApplicationStatus;
   jdText: string;
   originalCvHtml: string;
   optimizedCvHtml: string;
   topChoiceMessage?: string;
   wellfoundMessage?: string;
   introductionMessage?: string;
-  coverLetter?: string;
-  companyIntel?: CompanyIntel;
-  outreachOptions?: OutreachOption[];
-  chosenOutreachId?: OutreachOption['id'];
   scores: {
     original: ATSScore | null;
     optimized: ATSScore | null;
@@ -133,7 +106,7 @@ export interface UserProfile {
   avatarUrl?: string;
 }
 
-export type AppView = 'workspace' | 'history' | 'profile';
+export type AppView = 'landing' | 'home' | 'history' | 'profile';
 
 export interface AppState {
   originalSections: CVSection[];
@@ -144,15 +117,6 @@ export interface AppState {
   suggestedScore: ATSScore | null;
   topChoiceMessage: string;
   wellfoundMessage: string;
-  introductionMessage: string;
-  outreachOptions: OutreachOption[];
-  chosenOutreachId: OutreachOption['id'] | null;
-  companyIntel: CompanyIntel | null;
-  coverLetter: string;
-  isCoverLetterLoading: boolean;
-  jdFetchStatus: 'idle' | 'fetching' | 'success' | 'error' | 'fallback';
-  detectedCompany: string;
-  detectedJobTitle: string;
   mode: RewriteMode;
   isLoading: boolean;
   loadingStep: string;

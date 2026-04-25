@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, GenerateContentParameters } from "@google/genai";
-import { CVSection, Suggestion, RewriteMode, OutreachOption, CompanyIntel } from "../types";
+import { CVSection, Suggestion, RewriteMode } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -619,17 +619,17 @@ export async function generateTopChoiceMessage(cvHtml: string, jdText: string): 
 export async function generateWellfoundMessage(cvHtml: string, jdText: string): Promise<string> {
   const prompt = `
     You are a helpful career coach assisting a candidate in writing a message for a job application on Wellfound (formerly AngelList).
-
+    
     CONTEXT:
     The candidate is applying for a job with the following description (JD):
     ${jdText}
-
+    
     The candidate's CV (HTML) is:
     ${cvHtml}
-
+    
     TASK:
     Write a short, honest, and raw message (max 400 characters) answering the question: "What interests you about working for this company?"
-
+    
     GUIDELINES:
     - STRICTLY under 400 characters.
     - Be very honest and raw. Avoid corporate jargon.
@@ -638,7 +638,7 @@ export async function generateWellfoundMessage(cvHtml: string, jdText: string): 
     - Do not use hashtags.
     - Do not use a salutation or signature, just the message body.
     - **FORMAT:** Use bullet points (•) for readability where possible, but keep it very brief to fit the character limit.
-
+    
     Output ONLY the message text.
   `;
 
@@ -651,243 +651,4 @@ export async function generateWellfoundMessage(cvHtml: string, jdText: string): 
   });
 
   return response.text.trim();
-}
-
-export async function generateOutreachOptions(
-  cvHtml: string,
-  jdText: string,
-  companyIntel: CompanyIntel | null
-): Promise<OutreachOption[]> {
-  const intelContext = companyIntel
-    ? `Company Intel Available:
-       - Recent News: ${(companyIntel.recentNews || []).join(' | ')}
-       - Product Context: ${companyIntel.productContext || 'N/A'}
-       - Stage: ${companyIntel.stage || 'N/A'}`
-    : 'No company intel available — derive insights from the JD itself.';
-
-  const prompt = `
-    You are an expert career strategist. Generate 3 distinct outreach strategies for this job application.
-
-    CV (HTML):
-    ${cvHtml}
-
-    Job Description:
-    ${jdText}
-
-    ${intelContext}
-
-    Generate exactly 3 outreach options:
-
-    Option A — "direct": Short, sharp, direct intro. Professional but conversational. No buzzwords.
-    Option B — "insight": References a specific product detail, company news, or market observation. Shows the candidate did their homework.
-    Option C — "value_first": Positions the candidate as bringing a specific audit, idea, or gap they noticed. Value-forward before asking for anything.
-
-    For each option:
-    - linkedInMessage: ≤400 characters. No salutation. No hashtags. No "thrilled/excited". Sound human.
-    - emailSubject: Concise, specific subject line (max 60 chars).
-    - emailBody: 3-4 sentence email. Professional but not stiff. End with a clear, low-friction CTA.
-    - strategy: One sentence describing the angle of this option.
-
-    Return a JSON array of exactly 3 options.
-  `;
-
-  const response = await callGeminiWithRetry({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            label: { type: Type.STRING },
-            strategy: { type: Type.STRING },
-            linkedInMessage: { type: Type.STRING },
-            emailSubject: { type: Type.STRING },
-            emailBody: { type: Type.STRING },
-          },
-          required: ["id", "label", "strategy", "linkedInMessage", "emailSubject", "emailBody"]
-        }
-      }
-    }
-  });
-
-  const raw: any[] = JSON.parse(response.text);
-  const ids: OutreachOption['id'][] = ['direct', 'insight', 'value_first'];
-  const labels = ['Option A: Direct Intro', 'Option B: Insight-Led', 'Option C: Value-First'];
-  return raw.slice(0, 3).map((item, idx) => ({
-    ...item,
-    id: ids[idx],
-    label: labels[idx],
-  })) as OutreachOption[];
-}
-
-export async function generateCoverLetter(
-  cvHtml: string,
-  jdText: string,
-  companyIntel: CompanyIntel | null,
-  chosenOutreach: OutreachOption
-): Promise<string> {
-  const intelContext = companyIntel
-    ? `Company: ${companyIntel.productContext || ''} ${companyIntel.stage ? `(${companyIntel.stage})` : ''}`
-    : '';
-
-  const prompt = `
-    Write a professional cover letter for this job application.
-
-    CV (HTML):
-    ${cvHtml}
-
-    Job Description:
-    ${jdText}
-
-    ${intelContext}
-
-    Outreach Strategy Chosen: ${chosenOutreach.label} — ${chosenOutreach.strategy}
-
-    GUIDELINES:
-    - 3 focused paragraphs. No more, no less.
-    - Para 1: Opening — who you are, why this specific role/company. Hook from the ${chosenOutreach.id === 'insight' ? 'insight angle' : chosenOutreach.id === 'value_first' ? 'value-first angle' : 'direct angle'}.
-    - Para 2: Evidence — 2-3 concrete accomplishments from the CV that directly map to the JD's key requirements.
-    - Para 3: Forward — why now, why this company, clear and confident close. No desperate language.
-    - Tone: Confident, specific, human. No buzzwords. No "I am writing to express my interest".
-    - Do NOT add "Dear Hiring Manager" or sign-off — those will be added by the user.
-
-    Return clean HTML with <p> tags for each paragraph.
-  `;
-
-  const response = await callGeminiWithRetry({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      responseMimeType: "text/plain",
-    }
-  });
-
-  const text = response.text.trim();
-  // Wrap in paragraphs if the model didn't return HTML
-  if (!text.includes('<p>')) {
-    return text.split(/\n\n+/).map((p: string) => `<p>${p.trim()}</p>`).join('');
-  }
-  return text;
-}
-
-export async function gatherCompanyIntel(
-  companyName: string,
-  jobTitle: string
-): Promise<CompanyIntel> {
-  const prompt = `
-    Research the company "${companyName}" for a job candidate targeting the role: "${jobTitle}".
-
-    Provide:
-    1. recentNews: 2-3 bullet summaries of notable recent news, funding, product launches, or milestones (last 12 months). Each bullet max 120 chars.
-    2. productContext: 1-2 sentences describing what the company builds and its core mission.
-    3. teamContext: Brief description of the team structure or hiring focus relevant to this role.
-    4. stage: Company stage (e.g. "Seed", "Series A", "Series B", "Series C", "Growth", "Public", "Bootstrapped").
-    5. companySize: Rough employee count (e.g. "10-50", "50-200", "200-500", "500-2000", "2000+").
-    6. hiringManager: If you can reasonably infer a likely hiring manager name for this role (e.g. VP Product, Head of Engineering), provide it. If not certain, leave blank.
-
-    Be factual. Do not hallucinate funding rounds or events you're not confident about.
-    If info is unavailable, use null for that field.
-  `;
-
-  try {
-    const response = await callGeminiWithRetry({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }] as any,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            recentNews: { type: Type.ARRAY, items: { type: Type.STRING } },
-            productContext: { type: Type.STRING },
-            teamContext: { type: Type.STRING },
-            stage: { type: Type.STRING },
-            companySize: { type: Type.STRING },
-            hiringManager: { type: Type.STRING },
-          },
-        }
-      }
-    });
-
-    const raw = JSON.parse(response.text);
-    return {
-      recentNews: raw.recentNews || [],
-      productContext: raw.productContext || '',
-      teamContext: raw.teamContext || '',
-      stage: raw.stage || '',
-      companySize: raw.companySize || '',
-      hiringManager: raw.hiringManager || '',
-      fetchedAt: Date.now(),
-    };
-  } catch (_) {
-    return { fetchedAt: Date.now() };
-  }
-}
-
-export async function fetchAndParseJobUrl(
-  url: string
-): Promise<{ jdText: string; companyName?: string; jobTitle?: string }> {
-  let rawHtml: string;
-
-  try {
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
-    if (!res.ok) throw new Error('proxy_failed');
-    const data = await res.json();
-    rawHtml = data.contents || '';
-    if (!rawHtml || rawHtml.length < 300) throw new Error('empty_content');
-  } catch (_) {
-    throw { code: 'PROXY_FAILED', message: 'Could not fetch the URL via proxy.' };
-  }
-
-  // Strip to first 30k chars to stay within Gemini limits
-  const truncated = rawHtml.slice(0, 30000);
-
-  const prompt = `
-    The following is raw HTML from a job posting page. Extract the job information.
-
-    HTML:
-    ${truncated}
-
-    Extract:
-    - jdText: The full job description as clean plain text. Include all requirements, responsibilities, and qualifications. Preserve structure with newlines. Remove navigation, ads, footer, and unrelated content.
-    - companyName: The hiring company name (not the job board name).
-    - jobTitle: The exact job title.
-
-    If you cannot extract a meaningful job description (e.g., page is behind a login wall or is a CAPTCHA), return jdText as an empty string.
-  `;
-
-  const response = await callGeminiWithRetry({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          jdText: { type: Type.STRING },
-          companyName: { type: Type.STRING },
-          jobTitle: { type: Type.STRING },
-        },
-        required: ["jdText"]
-      }
-    }
-  });
-
-  const result = JSON.parse(response.text);
-
-  if (!result.jdText || result.jdText.trim().length < 100) {
-    throw { code: 'PROXY_FAILED', message: 'Could not extract job description from the page.' };
-  }
-
-  return {
-    jdText: result.jdText.trim(),
-    companyName: result.companyName || undefined,
-    jobTitle: result.jobTitle || undefined,
-  };
 }

@@ -1,51 +1,57 @@
 
 import { UserProfile } from "../types";
 
-// Keys for local persistence of session
-const SESSION_KEY = 'ru_session_user';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+  User
+} from "firebase/auth";
+import { auth } from "../src/lib/firebase";
 
 /**
- * MOCK AUTH SERVICE
- * In a real production app, replace this with Firebase Auth or Supabase Auth.
+ * FIREBASE AUTH SERVICE
+ * Handles Google Login and session persistence.
  */
+
+const mapFirebaseUser = (user: User): UserProfile => ({
+  id: user.uid,
+  name: user.displayName || 'User',
+  email: user.email || '',
+  avatarUrl: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`
+});
 
 export const authService = {
   /**
-   * Check if a user is currently logged in (persisted session)
+   * Check if a user is currently logged in
    */
-  getCurrentUser: async (): Promise<UserProfile | null> => {
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    const stored = localStorage.getItem(SESSION_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    return null;
+  getCurrentUser: (): Promise<UserProfile | null> => {
+    return new Promise((resolve) => {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        unsubscribe();
+        if (user) {
+          resolve(mapFirebaseUser(user));
+        } else {
+          resolve(null);
+        }
+      });
+    });
   },
 
   /**
-   * Simulate Google Sign In
+   * Google Sign In
    */
   signInWithGoogle: async (): Promise<UserProfile> => {
-    await new Promise(resolve => setTimeout(resolve, 1500)); // Network delay simulation
-
-    const mockUser: UserProfile = {
-      id: 'usr_' + Math.random().toString(36).substr(2, 9),
-      name: 'Jerry Maguire',
-      email: 'jerry@sportsmanagement.com',
-      avatarUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Jerry'
-    };
-
-    localStorage.setItem(SESSION_KEY, JSON.stringify(mockUser));
-    return mockUser;
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(auth, provider);
+    return mapFirebaseUser(result.user);
   },
 
   /**
    * Sign out
    */
   signOut: async (): Promise<void> => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    localStorage.removeItem(SESSION_KEY);
+    await firebaseSignOut(auth);
   }
 };

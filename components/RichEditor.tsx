@@ -31,8 +31,8 @@ const RichEditor: React.FC<Props> = ({ content, onChange, className, placeholder
     editorProps: {
         attributes: {
             class: (viewMode === 'page' 
-              ? 'prose prose-sm focus:outline-none w-full min-h-full break-words max-w-none dark:prose-invert' 
-              : 'prose prose-sm sm:prose-base lg:prose-lg xl:prose-2xl focus:outline-none w-full min-h-full break-words dark:prose-invert'),
+              ? 'prose prose-sm focus:outline-none w-full min-h-full break-words max-w-none' 
+              : 'prose prose-sm sm:prose-base lg:prose-lg xl:prose-2xl focus:outline-none w-full min-h-full break-words'),
         },
     },
   });
@@ -52,16 +52,16 @@ const RichEditor: React.FC<Props> = ({ content, onChange, className, placeholder
   if (!editor) return null;
 
   const editorContainerClass = viewMode === 'page'
-    ? "a4-page bg-white dark:bg-[#141414] dark:text-white shadow-lg min-h-[297mm] w-[210mm] p-[20mm] cursor-text print:shadow-none print:w-full print:h-full print:p-[15mm]"
-    : "w-full min-h-full bg-white dark:bg-[#141414] dark:text-white p-6 sm:p-8 cursor-text max-w-none";
+    ? "a4-page bg-white shadow-lg min-h-[297mm] w-[210mm] p-[20mm] cursor-text print:shadow-none print:w-full print:h-full print:p-[15mm]"
+    : "w-full min-h-full bg-white p-6 sm:p-8 cursor-text max-w-none";
 
   const wrapperClass = viewMode === 'page'
-    ? "flex-1 overflow-y-auto p-8 flex justify-center bg-gray-100 dark:bg-[#0A0A0A] print:p-0 print:bg-white print:overflow-visible"
-    : "flex-1 overflow-y-auto bg-gray-50 dark:bg-[#0A0A0A] flex flex-col";
+    ? "flex-1 overflow-y-auto p-8 flex justify-center bg-gray-100 print:p-0 print:bg-white print:overflow-visible"
+    : "flex-1 overflow-y-auto bg-gray-50 flex flex-col";
 
   return (
-    <div className={`flex flex-col bg-gray-50 dark:bg-[#0A0A0A] overflow-hidden ${className}`}>
-      <div className="bg-white dark:bg-[#141414] p-2 flex flex-wrap gap-1 border-b border-gray-200 dark:border-[#333333] sticky top-0 z-10 shadow-sm items-center shrink-0">
+    <div className={`flex flex-col bg-gray-50 overflow-hidden ${className}`}>
+      <div className="bg-white p-2 flex flex-wrap gap-1 border-b border-gray-200 sticky top-0 z-10 shadow-sm items-center shrink-0">
         <MenuButton 
           active={editor.isActive('bold')} 
           onClick={() => editor.chain().focus().toggleBold().run()}
@@ -151,7 +151,7 @@ const MenuButton: React.FC<{ active?: boolean; onClick: () => void; children: Re
   <button
     type="button"
     onClick={onClick}
-    className={`px-3 py-1 text-xs font-bold transition-all border ${active ? 'bg-black dark:bg-white text-white dark:text-black border-black dark:border-white' : 'text-gray-600 dark:text-gray-400 border-transparent hover:bg-gray-100 dark:hover:bg-[#1F1F1F]'}`}
+    className={`px-3 py-1 text-xs font-bold transition-all border ${active ? 'bg-black text-white border-black' : 'text-gray-600 border-transparent hover:bg-gray-100'}`}
   >
     {children}
   </button>

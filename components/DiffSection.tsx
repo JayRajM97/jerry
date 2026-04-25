@@ -26,8 +26,8 @@ const DiffSection: React.FC<Props> = ({ section, suggestions, onToggle }) => {
   const diffParts = computeSimpleDiff(section.content, currentContent);
 
   return (
-    <div className="duo-card bg-white overflow-hidden mb-6">
-      <div className="bg-gray-100 p-3 flex justify-between items-center border-b-2">
+    <div className="duo-card bg-white overflow-hidden mb-6 border border-gray-200">
+      <div className="bg-gray-100 p-3 flex justify-between items-center border-b-2 border-gray-200">
         <h4 className="font-bold text-gray-700 uppercase tracking-wide text-sm">{section.title}</h4>
         <div className="flex bg-gray-200 rounded-lg p-1 text-xs font-bold">
           <button 
@@ -45,7 +45,7 @@ const DiffSection: React.FC<Props> = ({ section, suggestions, onToggle }) => {
         </div>
       </div>
 
-      <div className="p-0 font-mono text-sm overflow-x-auto">
+      <div className="p-0 font-mono text-sm overflow-x-auto bg-white">
         {viewMode === 'unified' ? (
           <div className="min-w-full">
             {diffParts.map((part, idx) => (
@@ -59,15 +59,15 @@ const DiffSection: React.FC<Props> = ({ section, suggestions, onToggle }) => {
             ))}
           </div>
         ) : (
-          <div className="flex min-w-full divide-x">
+          <div className="flex min-w-full divide-x divide-gray-200">
             <div className="w-1/2">
-              <div className="bg-gray-50 px-4 py-1 font-bold text-xs text-gray-500 border-b">Original</div>
+              <div className="bg-gray-50 px-4 py-1 font-bold text-xs text-gray-500 border-b border-gray-200">Original</div>
               {section.content.split('\n').map((line, i) => (
                 <div key={i} className="px-4 py-0.5 text-gray-600 whitespace-pre-wrap">{line}</div>
               ))}
             </div>
             <div className="w-1/2">
-               <div className="bg-gray-50 px-4 py-1 font-bold text-xs text-gray-500 border-b">Suggested</div>
+               <div className="bg-gray-50 px-4 py-1 font-bold text-xs text-gray-500 border-b border-gray-200">Suggested</div>
                {currentContent.split('\n').map((line, i) => (
                 <div key={i} className={`px-4 py-0.5 text-gray-600 whitespace-pre-wrap ${line !== section.content.split('\n')[i] ? 'bg-green-50' : ''}`}>{line}</div>
               ))}
@@ -77,7 +77,7 @@ const DiffSection: React.FC<Props> = ({ section, suggestions, onToggle }) => {
       </div>
 
       {sectionSuggestions.length > 0 && (
-        <div className="p-4 bg-blue-50 border-t-2">
+        <div className="p-4 bg-blue-50 border-t-2 border-blue-100">
           <p className="text-xs font-bold text-blue-600 uppercase mb-3">Proposed Changes:</p>
           {sectionSuggestions.map(s => (
             <div key={s.id} className="flex items-start gap-3 mb-3 last:mb-0">
@@ -85,7 +85,7 @@ const DiffSection: React.FC<Props> = ({ section, suggestions, onToggle }) => {
                 type="checkbox" 
                 checked={s.applied}
                 onChange={() => onToggle(s.id)}
-                className="mt-1 w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="mt-1 w-5 h-5 rounded border-gray-300 bg-white text-blue-600 focus:ring-blue-500"
               />
               <div>
                 <p className="text-sm font-bold text-gray-800">{s.reason}</p>

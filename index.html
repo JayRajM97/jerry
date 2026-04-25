@@ -4,11 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resume Updater | Uber Base Design</title>
+    <title>Jerry Maguire | Uber Base Design</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
-        darkMode: 'class',
         theme: {
           extend: {
             colors: {
@@ -34,23 +33,6 @@
             background-color: var(--bg-primary, #FFFFFF);
             color: var(--text-primary, #000000);
             overflow-x: hidden;
-            transition: background-color 0.3s, color 0.3s;
-        }
-        
-        html.dark body {
-            --bg-primary: #000000;
-            --bg-secondary: #141414;
-            --bg-tertiary: #1F1F1F;
-            --text-primary: #FFFFFF;
-            --text-secondary: #AFAFAF;
-            --border-color: #333333;
-            --btn-primary-bg: #FFFFFF;
-            --btn-primary-text: #000000;
-            --btn-primary-hover: #E2E2E2;
-            --btn-secondary-bg: #000000;
-            --btn-secondary-text: #FFFFFF;
-            --btn-secondary-border: #FFFFFF;
-            --btn-secondary-hover: #141414;
         }
 
         :root {
@@ -91,10 +73,6 @@
             color: #AFAFAF;
             cursor: not-allowed;
         }
-        html.dark .uber-button-primary:disabled {
-            background-color: #333333;
-            color: #757575;
-        }
 
         .uber-button-secondary {
             background-color: var(--btn-secondary-bg);
@@ -119,11 +97,6 @@
             display: block;
             border-left: 4px solid #cf222e;
         }
-        html.dark .diff-removed {
-            background-color: #3D1010;
-            color: #FF8585;
-            border-left-color: #FF8585;
-        }
         .diff-added {
             background-color: #e6ffec;
             color: #1a7f37;
@@ -131,21 +104,11 @@
             display: block;
             border-left: 4px solid #1a7f37;
         }
-        html.dark .diff-added {
-            background-color: #103D10;
-            color: #85FF85;
-            border-left-color: #85FF85;
-        }
 
         /* Uber Base Card & Input Styles */
         .uber-card {
             border: 1px solid #E2E2E2;
             background-color: #FFFFFF;
-        }
-        
-        html.dark .uber-card {
-            border-color: #333333;
-            background-color: #141414;
         }
         
         .uber-input {
@@ -155,21 +118,10 @@
             transition: border-color 0.2s, background-color 0.2s;
         }
         
-        html.dark .uber-input {
-            border-color: #333333;
-            background-color: #121212;
-            color: #E0E0E0;
-        }
-        
         .uber-input:focus {
             border-color: #000000;
             background-color: #FFFFFF;
             outline: none;
-        }
-        
-        html.dark .uber-input:focus {
-            border-color: #E0E0E0;
-            background-color: #1E1E1E;
         }
 
         /* CV Content & Editor Styles - Enforcing Standard Formatting */
@@ -270,11 +222,6 @@
             position: relative;
         }
         
-        html.dark .a4-page {
-            background-color: #FFFFFF !important;
-            color: #000000 !important;
-        }
-
         @media print {
             body {
                 background: white;

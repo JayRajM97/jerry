@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "UserHistory": {
+      "title": "User History",
+      "description": "Historical records of optimized resumes and application messages.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "jobTitle": { "type": "string" },
+        "jdText": { "type": "string" },
+        "originalCvHtml": { "type": "string" },
+        "optimizedCvHtml": { "type": "string" },
+        "topChoiceMessage": { "type": "string" },
+        "wellfoundMessage": { "type": "string" },
+        "scores": { "type": "object" },
+        "analysisData": { "type": "object" }
+      },
+      "required": ["id", "userId", "timestamp"]
+    },
+    "MasterCV": {
+      "title": "Master CV",
+      "description": "The user's primary CV profile content.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "htmlContent": { "type": "string" }
+      },
+      "required": ["userId", "htmlContent"]
+    },
+    "Waitlist": {
+      "title": "Waitlist",
+      "description": "Information for potential beta users who joined the waitlist.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "linkedin": { "type": "string" },
+        "usecase": { "type": "string" },
+        "otherUsecase": { "type": "string" },
+        "wouldPay": { "type": "string" },
+        "priceRange": { "type": "string" },
+        "additionalNote": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["name", "email", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/user_history/{historyId}": {
+      "schema": "UserHistory",
+      "description": "Collection of optimized resumes per user."
+    },
+    "/master_cv/{userId}": {
+      "schema": "MasterCV",
+      "description": "Storage for user's master CV templates."
+    },
+    "/waitlist/{waitlistId}": {
+      "schema": "Waitlist",
+      "description": "Public waitlist signups."
+    }
+  }
+}

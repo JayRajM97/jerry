@@ -56,12 +56,14 @@ const ATSScoreCard: React.FC<Props> = ({ title, score, highlightColor }) => {
               type="category" 
               axisLine={false} 
               tickLine={false} 
-              tick={{ fontSize: 9, fill: '#9CA3AF', fontWeight: 'bold', fontFamily: 'Inter' }}
+              tick={{ fontSize: 9, fill: 'currentColor', fontWeight: 'bold', fontFamily: 'Inter' }}
+              className="text-gray-400"
               width={130}
             />
             <Tooltip 
               cursor={{ fill: 'transparent' }}
-              contentStyle={{ borderRadius: '4px', border: '1px solid #E5E7EB', fontSize: '12px', fontWeight: 'bold' }}
+              contentStyle={{ borderRadius: '4px', border: '1px solid #E5E7EB', fontSize: '12px', fontWeight: 'bold', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+              itemStyle={{ color: 'var(--text-primary)' }}
               formatter={(value: number, name: string, props: any) => [`${props.payload.rawValue} / ${props.payload.max} pts`, 'Score']}
             />
             <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={12}>
@@ -75,7 +77,8 @@ const ATSScoreCard: React.FC<Props> = ({ title, score, highlightColor }) => {
                    const item = chartData.find(d => d.rawValue === val);
                    return item ? `${val}/${item.max}` : `${val}`;
                 }} 
-                style={{ fontSize: '10px', fontWeight: 'bold', fill: '#6B7280' }} 
+                style={{ fontSize: '10px', fontWeight: 'bold', fill: 'currentColor' }} 
+                className="text-gray-500"
               />
             </Bar>
           </BarChart>

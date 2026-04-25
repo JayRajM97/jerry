@@ -1,6 +1,6 @@
 {
   "name": "Jerry Maguire",
-  "description": "A Duolingo-style CV tailoring tool that uses AI to align your resume with job descriptions via GitHub-style diffs and real-time ATS scoring, while strictly preserving facts.",
+  "description": "The AI career agent that helps you land the job: optimizes your resume for ATS, applies on your behalf, and builds the relationships that win.",
   "requestFramePermissions": [
     "camera"
   ]

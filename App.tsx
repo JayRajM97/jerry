@@ -1,28 +1,23 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  CVSection,
-  Suggestion,
-  ATSScore,
-  RewriteMode,
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { 
+  CVSection, 
+  Suggestion, 
+  ATSScore, 
+  RewriteMode, 
   AppState,
   HistoryItem,
   AppView,
-  UserProfile,
-  ApplicationStatus,
-  OutreachOption,
+  UserProfile
 } from './types';
-import { Copy, Check, RefreshCw, Sparkles, Moon, Sun } from 'lucide-react';
-import {
-  analyzeResume,
+import { Copy, Check, RefreshCw, Sparkles, Moon, Sun, User } from 'lucide-react';
+import { 
+  analyzeResume, 
   calculateATSScore,
   generateTopChoiceMessage,
   generateWellfoundMessage,
-  generateIntroduction,
-  generateOutreachOptions,
-  generateCoverLetter,
-  gatherCompanyIntel,
-  fetchAndParseJobUrl,
+  generateIntroduction
 } from './services/geminiService';
 import { authService } from './services/authService';
 import { databaseService } from './services/databaseService';
@@ -30,14 +25,7 @@ import { SAMPLE_CV, SAMPLE_JD } from './constants';
 import ATSScoreCard from './components/ATSScoreCard';
 import RichEditor from './components/RichEditor';
 import RationalePanel from './components/RationalePanel';
-import LoginScreen from './components/LoginScreen';
-import ApplicationStatusBadge from './components/ApplicationStatusBadge';
-import OutreachSelector from './components/OutreachSelector';
-import CompanyIntelCard from './components/CompanyIntelCard';
-import CoverLetterPanel from './components/CoverLetterPanel';
-import JobUrlInput from './components/JobUrlInput';
-import ApplyPanel from './components/ApplyPanel';
-import { extractAutofillData } from './utils/autofillScript';
+import LandingPage from './components/LandingPage';
 import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
 // @ts-ignore
@@ -82,6 +70,17 @@ const cleanDocxHtml = (html: string): string => {
 };
 
 const App: React.FC = () => {
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
+  );
+};
+
+const AppContent: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  
   // --- Auth State ---
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -90,39 +89,42 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [masterCvHtml, setMasterCvHtml] = useState<string>('');
 
-  // --- View State ---
-  const [currentView, setCurrentView] = useState<AppView>('workspace');
-  
   // --- Workspace State ---
   const [cvHtml, setCvHtml] = useState('');
   const [jdText, setJdText] = useState('');
-  const [jobUrl, setJobUrl] = useState('');
-
+  
   // New state for the "final" edited HTML in the preview tab
   const [finalPreviewHtml, setFinalPreviewHtml] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('darkMode');
-    return saved === 'true' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  });
+  // Sync currentView with URL
+  const path = location.pathname.split('/')[1];
+  const currentView = path === 'access' ? 'home' : (path || 'landing');
 
+  const setCurrentView = (view: string) => {
+    if (view === 'home' || view === 'access') navigate('/home');
+    else if (view === 'history') navigate('/history');
+    else if (view === 'profile') navigate('/profile');
+    else navigate('/');
+  };
+
+  // Redirect to /home if logged in and at root or /access
   useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('darkMode', 'true');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('darkMode', 'false');
+    if (user && (location.pathname === '/' || location.pathname === '/access')) {
+      navigate('/home');
     }
-  }, [isDarkMode]);
+    // Auto-trigger login if visiting /access and not logged in
+    if (!user && !isAuthLoading && location.pathname === '/access') {
+      handleLogin();
+    }
+  }, [user, isAuthLoading, location.pathname, navigate]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const EMPTY_STATE: AppState = {
+  const [state, setState] = useState<AppState>({
     originalSections: [],
     suggestions: [],
     skippableContent: [],
@@ -132,22 +134,12 @@ const App: React.FC = () => {
     topChoiceMessage: '',
     wellfoundMessage: '',
     introductionMessage: '',
-    outreachOptions: [],
-    chosenOutreachId: null,
-    companyIntel: null,
-    coverLetter: '',
-    isCoverLetterLoading: false,
-    jdFetchStatus: 'idle',
-    detectedCompany: '',
-    detectedJobTitle: '',
     mode: RewriteMode.BALANCED,
     isLoading: false,
-    loadingStep: '',
-  };
+    loadingStep: ''
+  });
 
-  const [state, setState] = useState<AppState>(EMPTY_STATE);
-
-  const [activeTab, setActiveTab] = useState<'input' | 'analyze' | 'preview' | 'apply'>('input');
+  const [activeTab, setActiveTab] = useState<'input' | 'analyze' | 'preview'>('input');
   const [inputMethod, setInputMethod] = useState<'upload' | 'paste'>('paste');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -223,7 +215,7 @@ const App: React.FC = () => {
   };
 
   const saveToHistory = async (
-    currentSections: CVSection[],
+    currentSections: CVSection[], 
     currentSuggestions: Suggestion[],
     currentSkippable: string[],
     currentProfileSuggestions: any[],
@@ -231,90 +223,86 @@ const App: React.FC = () => {
     scoreOptimized: ATSScore | null,
     topChoiceMsg: string,
     wellfoundMsg: string,
-    introMsg: string,
-    outreachOpts: OutreachOption[],
-    chosenId: OutreachOption['id'] | null,
-    intel: any,
-    coverLetter: string,
-    companyName: string,
-    jobUrl?: string,
+    introMsg: string
   ) => {
     if (!user) return;
 
     const finalHtml = compileFinalHtml(currentSections, currentSuggestions);
-
+    
     const newItem: HistoryItem = {
       id: Date.now().toString(),
       userId: user.id,
       timestamp: Date.now(),
       jobTitle: extractJobTitle(jdText),
-      companyName: companyName || undefined,
-      jobUrl: jobUrl || undefined,
-      applicationStatus: 'saved',
       jdText: jdText,
       originalCvHtml: cvHtml,
       optimizedCvHtml: finalHtml,
       topChoiceMessage: topChoiceMsg,
       wellfoundMessage: wellfoundMsg,
       introductionMessage: introMsg,
-      coverLetter: coverLetter || undefined,
-      companyIntel: intel || undefined,
-      outreachOptions: outreachOpts.length ? outreachOpts : undefined,
-      chosenOutreachId: chosenId || undefined,
       scores: {
         original: scoreOriginal,
-        optimized: scoreOptimized,
+        optimized: scoreOptimized
       },
       analysisData: {
         sections: currentSections,
         suggestions: currentSuggestions,
         skippableContent: currentSkippable,
-        profileSuggestions: currentProfileSuggestions,
-      },
+        profileSuggestions: currentProfileSuggestions
+      }
     };
-
+    
+    // Optimistic Update
     setHistory(prev => [newItem, ...prev]);
+    
+    // Async DB Save
     await databaseService.saveHistoryItem(user.id, newItem);
   };
 
   const loadHistoryItem = (item: HistoryItem) => {
     setCvHtml(item.originalCvHtml);
     setJdText(item.jdText);
-    const opts = item.outreachOptions || [];
     setState({
-      ...EMPTY_STATE,
       originalSections: item.analysisData.sections,
       suggestions: item.analysisData.suggestions,
       skippableContent: item.analysisData.skippableContent || [],
       profileSuggestions: item.analysisData.profileSuggestions || [],
       currentScore: item.scores.original,
       suggestedScore: item.scores.optimized,
-      topChoiceMessage: opts[0]?.linkedInMessage || item.topChoiceMessage || '',
-      wellfoundMessage: opts[1]?.linkedInMessage || item.wellfoundMessage || '',
+      topChoiceMessage: item.topChoiceMessage || '',
+      wellfoundMessage: item.wellfoundMessage || '',
       introductionMessage: item.introductionMessage || '',
-      outreachOptions: opts,
-      chosenOutreachId: item.chosenOutreachId || null,
-      companyIntel: item.companyIntel || null,
-      coverLetter: item.coverLetter || '',
-      detectedCompany: item.companyName || '',
-      detectedJobTitle: item.jobTitle || '',
+      mode: RewriteMode.BALANCED,
+      isLoading: false,
+      loadingStep: ''
     });
     setFinalPreviewHtml(item.optimizedCvHtml);
-    setCurrentView('workspace');
+    setCurrentView('home');
     setActiveTab('analyze');
   };
 
   const startNewApplication = () => {
     setCvHtml(masterCvHtml);
     setJdText('');
-    setJobUrl('');
     setFinalPreviewHtml('');
-    setState(prev => ({ ...EMPTY_STATE, mode: prev.mode }));
+    setState({
+      originalSections: [],
+      suggestions: [],
+      skippableContent: [],
+      profileSuggestions: [],
+      currentScore: null,
+      suggestedScore: null,
+      topChoiceMessage: '',
+      wellfoundMessage: '',
+      mode: RewriteMode.BALANCED,
+      isLoading: false,
+      loadingStep: ''
+    });
     setActiveTab('input');
-    setCurrentView('workspace');
+    setCurrentView('home');
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'workspace' | 'profile') => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'home' | 'profile') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -504,83 +492,85 @@ const App: React.FC = () => {
 
   const handleGenerate = async () => {
     if (!cvHtml || !jdText) return;
-
+    
     setState(prev => ({ ...prev, isLoading: true, loadingStep: 'Starting' }));
     try {
       setState(prev => ({ ...prev, loadingStep: 'Evaluating match' }));
       const currentScore = await calculateATSScore(cvHtml, jdText);
       await new Promise(resolve => setTimeout(resolve, 1500));
-
+      
       setState(prev => ({ ...prev, loadingStep: 'Optimizing phrasing' }));
       const { sections, suggestions, skippableContent, profileSuggestions } = await analyzeResume(
-        cvHtml,
-        jdText,
+        cvHtml, 
+        jdText, 
         state.mode,
         currentScore.missing_required_skills || [],
         currentScore.weak_signals || []
       );
 
-      const detectedCompany = state.detectedCompany || currentScore.parsedJd?.company_name || '';
-      const detectedJobTitle = state.detectedJobTitle || currentScore.parsedJd?.job_title || '';
-
-      // Research company intel in parallel with message generation
-      setState(prev => ({ ...prev, loadingStep: 'Drafting outreach & researching company' }));
-      const [introMsg, intelResult] = await Promise.all([
-        generateIntroduction(currentScore.parsedCv, currentScore.parsedJd),
-        detectedCompany ? gatherCompanyIntel(detectedCompany, detectedJobTitle).catch(() => null) : Promise.resolve(null),
-      ]);
-
-      setState(prev => ({ ...prev, companyIntel: intelResult, loadingStep: 'Crafting outreach options' }));
-
-      const [topChoiceMsg, wellfoundMsg, outreachOpts] = await Promise.all([
+      // Generate Top Choice Message and Wellfound Message in parallel
+      setState(prev => ({ ...prev, loadingStep: 'Drafting messages' }));
+      const [topChoiceMsg, wellfoundMsg, introMsg] = await Promise.all([
         generateTopChoiceMessage(cvHtml, jdText),
         generateWellfoundMessage(cvHtml, jdText),
-        generateOutreachOptions(cvHtml, jdText, intelResult),
+        generateIntroduction(currentScore.parsedCv, currentScore.parsedJd)
       ]);
 
       let optimizedFullHtml = sections.map(s => s.optimizedHtmlContent || s.htmlContent).join('');
       let appliedSuggestions = suggestions.map(s => ({ ...s, applied: true }));
-
+      
       await new Promise(resolve => setTimeout(resolve, 1500));
 
       setState(prev => ({ ...prev, loadingStep: 'Finalizing scores' }));
-      let suggestedScore = await calculateATSScore(optimizedFullHtml, jdText, currentScore.parsedJd);
+      let suggestedScore = await calculateATSScore(
+        optimizedFullHtml,
+        jdText,
+        currentScore.parsedJd
+      );
 
       // --- INSTRUMENTATION ---
       const hashInitialText = hashString(cvHtml);
       const hashOptimizedText = hashString(optimizedFullHtml);
-      if (hashInitialText === hashOptimizedText) console.warn("Pipeline: texts identical.");
-      if (hashString(JSON.stringify(currentScore.parsedCv || {})) === hashString(JSON.stringify(suggestedScore.parsedCv || {}))) console.warn("Pipeline: JSONs identical.");
+      const hashInitialJson = hashString(JSON.stringify(currentScore.parsedCv || {}));
+      const hashOptimizedJson = hashString(JSON.stringify(suggestedScore.parsedCv || {}));
+      
+      console.log("--- INSTRUMENTATION ---");
+      console.log("hash(initial_resume_text):", hashInitialText);
+      console.log("hash(optimized_resume_text):", hashOptimizedText);
+      console.log("hash(initial_resume_json):", hashInitialJson);
+      console.log("hash(optimized_resume_json):", hashOptimizedJson);
+      
+      if (hashInitialText === hashOptimizedText) {
+          console.warn("Pipeline is not applying optimization (texts are identical).");
+      }
+      if (hashInitialJson === hashOptimizedJson) {
+          console.warn("Pipeline is not applying optimization (JSONs are identical).");
+      }
 
       // --- REGRESSION GUARDRAIL ---
       let attempts = 0;
       while (suggestedScore.total < currentScore.total && attempts < 2) {
-        attempts++;
-        setState(prev => ({ ...prev, loadingStep: `Fixing score regression (Attempt ${attempts})...` }));
-        appliedSuggestions = appliedSuggestions.map(s => ({ ...s, applied: false }));
-        optimizedFullHtml = sections.map(s => s.htmlContent).join('');
-        suggestedScore = await calculateATSScore(optimizedFullHtml, jdText, currentScore.parsedJd);
+         attempts++;
+         setState(prev => ({ ...prev, loadingStep: `Fixing score regression (Attempt ${attempts})...` }));
+         
+         // Revert all suggestions to ensure monotonicity
+         appliedSuggestions = appliedSuggestions.map(s => ({ ...s, applied: false }));
+         optimizedFullHtml = sections.map(s => s.htmlContent).join(''); 
+         
+         suggestedScore = await calculateATSScore(optimizedFullHtml, jdText, currentScore.parsedJd);
       }
 
       if (suggestedScore.total < currentScore.total) {
-        suggestedScore = currentScore;
-        optimizedFullHtml = cvHtml;
-        appliedSuggestions = appliedSuggestions.map(s => ({ ...s, applied: false }));
-        console.warn("Score regression guardrail triggered.");
+         // Hard fallback
+         suggestedScore = currentScore;
+         optimizedFullHtml = cvHtml;
+         appliedSuggestions = appliedSuggestions.map(s => ({ ...s, applied: false }));
+         console.warn("Score regression guardrail triggered: Reverted to initial score.");
       }
 
-      // Use outreach option A as the backward-compat top choice message
-      const topMsg = outreachOpts[0]?.linkedInMessage || topChoiceMsg;
-      const wfMsg = outreachOpts[2]?.linkedInMessage || wellfoundMsg;
-
-      await saveToHistory(
-        sections, appliedSuggestions, skippableContent, profileSuggestions,
-        currentScore, suggestedScore,
-        topMsg, wfMsg, introMsg,
-        outreachOpts, null, intelResult, '',
-        detectedCompany,
-        undefined,
-      );
+      // --- SAVE HISTORY ---
+      await saveToHistory(sections, appliedSuggestions, skippableContent, profileSuggestions, currentScore, suggestedScore, topChoiceMsg, wellfoundMsg, introMsg);
+      // --------------------
 
       setState(prev => ({
         ...prev,
@@ -590,15 +580,10 @@ const App: React.FC = () => {
         profileSuggestions,
         currentScore,
         suggestedScore,
-        topChoiceMessage: topMsg,
-        wellfoundMessage: wfMsg,
+        topChoiceMessage: topChoiceMsg,
+        wellfoundMessage: wellfoundMsg,
         introductionMessage: introMsg,
-        outreachOptions: outreachOpts,
-        chosenOutreachId: null,
-        companyIntel: intelResult,
-        detectedCompany,
-        detectedJobTitle,
-        isLoading: false,
+        isLoading: false
       }));
       setActiveTab('analyze');
     } catch (error: any) {
@@ -606,44 +591,6 @@ const App: React.FC = () => {
       setState(prev => ({ ...prev, isLoading: false }));
       alert("Analysis failed. Please try again.");
     }
-  };
-
-  const handleFetchJobUrl = async (url: string) => {
-    setState(prev => ({ ...prev, jdFetchStatus: 'fetching' }));
-    setJobUrl(url);
-    try {
-      const { jdText: fetched, companyName, jobTitle } = await fetchAndParseJobUrl(url);
-      setJdText(fetched);
-      setState(prev => ({
-        ...prev,
-        jdFetchStatus: 'success',
-        detectedCompany: companyName || prev.detectedCompany,
-        detectedJobTitle: jobTitle || prev.detectedJobTitle,
-      }));
-    } catch (_) {
-      setState(prev => ({ ...prev, jdFetchStatus: 'fallback' }));
-    }
-  };
-
-  const handleChooseOutreach = (id: OutreachOption['id']) => {
-    setState(prev => ({ ...prev, chosenOutreachId: id }));
-  };
-
-  const handleGenerateCoverLetter = async () => {
-    const chosen = state.outreachOptions.find(o => o.id === state.chosenOutreachId);
-    if (!chosen) return;
-    setState(prev => ({ ...prev, isCoverLetterLoading: true }));
-    try {
-      const cl = await generateCoverLetter(cvHtml, jdText, state.companyIntel, chosen);
-      setState(prev => ({ ...prev, coverLetter: cl, isCoverLetterLoading: false }));
-    } catch (_) {
-      setState(prev => ({ ...prev, isCoverLetterLoading: false }));
-    }
-  };
-
-  const handleStatusChange = async (itemId: string, status: ApplicationStatus) => {
-    setHistory(prev => prev.map(i => i.id === itemId ? { ...i, applicationStatus: status } : i));
-    if (user) await databaseService.updateApplicationStatus(user.id, itemId, status);
   };
 
   const updateSuggestionText = (id: string, newHtml: string) => {
@@ -756,24 +703,24 @@ const App: React.FC = () => {
 
   if (isAuthLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-white dark:bg-[#141414]">
+      <div className="h-screen flex items-center justify-center bg-white">
         <div className="uber-loader border-gray-200 border-t-black"></div>
       </div>
     );
   }
 
   if (!user) {
-    return <LoginScreen onLogin={handleLogin} isLoading={isAuthLoading} />;
+    return <LandingPage onLogin={handleLogin} isLoading={isAuthLoading} />;
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white dark:bg-black overflow-hidden">
+    <div className="h-screen flex flex-col bg-white overflow-hidden">
       {/* Uber Base Header */}
-      <header className="bg-black dark:bg-black dark:border-b dark:border-[#333333] text-white h-16 flex items-center px-8 shrink-0 z-50 no-print justify-between">
+      <header className="bg-black text-white h-16 flex items-center px-8 shrink-0 z-50 no-print justify-between">
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-4 cursor-pointer" onClick={startNewApplication}>
-            <div className="bg-white dark:bg-black text-black dark:text-white border dark:border-white font-bold px-3 py-1 text-base">RU</div>
-            <h1 className="text-lg font-bold tracking-tight">Resume Updater</h1>
+          <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate('/home')}>
+            <div className="bg-white text-black border font-bold px-3 py-1 text-base">JM</div>
+            <h1 className="text-lg font-bold tracking-tight">Jerry Maguire</h1>
           </div>
           
           <div className="h-8 w-px bg-gray-800 mx-2"></div>
@@ -781,13 +728,13 @@ const App: React.FC = () => {
           <nav className="flex gap-1">
              <button 
                 onClick={startNewApplication}
-                className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors ${currentView === 'workspace' && activeTab === 'input' && state.originalSections.length === 0 ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white'}`}
+                className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors ${location.pathname === '/home' && activeTab === 'input' && state.originalSections.length === 0 ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white'}`}
              >
                 + New App
              </button>
              <button 
-                onClick={() => setCurrentView('history')}
-                className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors ${currentView === 'history' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white'}`}
+                onClick={() => navigate('/history')}
+                className={`px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors ${location.pathname === '/history' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white'}`}
              >
                 History
              </button>
@@ -796,47 +743,39 @@ const App: React.FC = () => {
 
         <div className="flex items-center gap-6">
             <button 
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 rounded-full text-gray-400 hover:text-white transition-colors"
-              title="Toggle Dark Mode"
-            >
-              {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            <button 
-                onClick={() => setCurrentView('profile')}
-                className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors ${currentView === 'profile' ? 'bg-white text-black dark:bg-[#141414] dark:text-white' : 'text-gray-400 hover:text-white'}`}
+                onClick={() => navigate('/profile')}
+                className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-widest rounded transition-colors ${location.pathname === '/profile' ? 'bg-white text-black border border-gray-200' : 'text-gray-400 hover:text-white'}`}
              >
-                <span className="text-lg">👤</span> Profile
+                <User size={16} /> Profile
              </button>
              
              <div className="h-8 w-px bg-gray-800 mx-2"></div>
              
              <div className="flex items-center gap-3 group relative cursor-pointer">
                 <img src={user.avatarUrl} alt={user.name} className="w-8 h-8 rounded-full border border-gray-700" />
-                <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-[#141414] text-black dark:text-white shadow-xl border border-gray-200 dark:border-[#333333] hidden group-hover:block rounded z-50">
-                    <div className="p-4 border-b border-gray-100 dark:border-[#333333]">
+                <div className="absolute top-full right-0 mt-2 w-48 bg-white text-black shadow-xl border border-gray-200 hidden group-hover:block rounded z-50">
+                    <div className="p-4 border-b border-gray-100">
                         <p className="font-bold text-sm">{user.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
+                        <p className="text-xs text-gray-500 truncate">{user.email}</p>
                     </div>
-                    <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-[#1F1F1F] text-red-600 dark:text-red-400 font-bold">Sign Out</button>
+                    <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-50 text-red-600 font-bold">Sign Out</button>
                 </div>
              </div>
         </div>
       </header>
       
-      {/* SUB-HEADER FOR WORKSPACE NAVIGATION (Only visible in Workspace view) */}
-      {currentView === 'workspace' && (
-        <div className="bg-white dark:bg-black border-b border-gray-200 dark:border-[#333333] px-8 h-12 flex items-center justify-center shrink-0">
+      {/* SUB-HEADER FOR WORKSPACE NAVIGATION (Only visible in Home view) */}
+      {currentView === 'home' && (
+        <div className="bg-white border-b border-gray-200 px-8 h-12 flex items-center justify-center shrink-0">
           {[
             { id: 'input', label: '1. Input' },
             { id: 'analyze', label: '2. Analyze' },
             { id: 'preview', label: '3. Preview' },
-            { id: 'apply', label: '4. Apply' },
           ].map(tab => (
             <button 
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-8 h-full flex items-center text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === tab.id ? 'border-black dark:border-white text-black dark:text-white' : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'}`}
+              className={`px-8 h-full flex items-center text-xs font-bold uppercase tracking-widest border-b-2 transition-all ${activeTab === tab.id ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
             >
               {tab.label}
             </button>
@@ -844,40 +783,31 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <main className="flex-1 flex flex-col overflow-hidden bg-[#F9F9F9] dark:bg-[#0A0A0A]">
+      <main className="flex-1 flex flex-col overflow-hidden bg-[#F9F9F9]">
         
         {/* === HISTORY VIEW === */}
         {currentView === 'history' && (
            <div className="p-12 max-w-6xl mx-auto w-full h-full overflow-y-auto">
               <h2 className="text-3xl font-bold mb-8">Application History</h2>
               {history.length === 0 ? (
-                  <div className="text-center py-20 text-gray-400 dark:text-gray-500">
+                  <div className="text-center py-20 text-gray-400">
                       <p className="mb-4 text-xl">No history yet.</p>
                       <button onClick={startNewApplication} className="uber-button-primary">Start First Application</button>
                   </div>
               ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {history.map(item => (
-                          <div key={item.id} className="uber-card p-6 flex flex-col h-72 hover:shadow-lg transition-shadow cursor-pointer group" onClick={() => loadHistoryItem(item)}>
+                          <div key={item.id} className="uber-card p-6 flex flex-col h-64 hover:shadow-lg transition-shadow cursor-pointer group" onClick={() => loadHistoryItem(item)}>
                               <div className="flex-1">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
-                                        {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                    </p>
-                                    <ApplicationStatusBadge
-                                      status={item.applicationStatus || 'saved'}
-                                      onChange={(status) => handleStatusChange(item.id, status)}
-                                    />
-                                  </div>
-                                  <h3 className="text-xl font-bold mb-1 line-clamp-2">{item.jobTitle}</h3>
-                                  {item.companyName && (
-                                    <p className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-2">{item.companyName}</p>
-                                  )}
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-3">{item.jdText}</p>
+                                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                                      {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                  </p>
+                                  <h3 className="text-xl font-bold mb-2 line-clamp-2">{item.jobTitle}</h3>
+                                  <p className="text-xs text-gray-500 line-clamp-3">{item.jdText}</p>
                               </div>
-                              <div className="mt-4 pt-4 border-t border-gray-100 dark:border-[#333333] flex justify-between items-end">
+                              <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-end">
                                   <div>
-                                      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Score</p>
+                                      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Score</p>
                                       <p className="text-2xl font-bold text-blue-600">{item.scores.optimized?.total || 'N/A'}</p>
                                   </div>
                                   <span className="text-xs font-bold underline group-hover:text-blue-600">Open &rarr;</span>
@@ -895,7 +825,7 @@ const App: React.FC = () => {
               <div className="flex justify-between items-end mb-8 shrink-0">
                   <div>
                     <h2 className="text-3xl font-bold mb-2">Master Resume</h2>
-                    <p className="text-gray-500 dark:text-gray-400">This resume will be used as the starting point for all new applications.</p>
+                    <p className="text-gray-500">This resume will be used as the starting point for all new applications.</p>
                   </div>
                   <div className="relative">
                      <button onClick={() => fileInputRef.current?.click()} className="uber-button-secondary text-xs uppercase tracking-widest font-bold">Import from File</button>
@@ -914,25 +844,25 @@ const App: React.FC = () => {
         )}
 
         {/* === WORKSPACE VIEW === */}
-        {currentView === 'workspace' && (
+        {currentView === 'home' && (
           <>
             {activeTab === 'input' && (
               <div className="flex-1 flex flex-col lg:flex-row p-6 gap-6 overflow-hidden no-print">
                 {/* Left Column: Resume Editor */}
                 <div className="flex-1 flex flex-col bg-white dark:bg-[#141414] border border-gray-200 dark:border-[#333333] shadow-sm min-h-0">
-                  <div className="p-4 border-b border-gray-100 dark:border-[#333333] flex justify-between items-center shrink-0">
-                      <h2 className="text-lg font-bold tracking-tight dark:text-white">Resume Content</h2>
-                      <div className="flex bg-gray-100 dark:bg-[#141414] p-1">
-                        <button onClick={() => setInputMethod('upload')} className={`px-4 py-1 text-[10px] font-bold tracking-widest ${inputMethod === 'upload' ? 'bg-white dark:bg-[#333333] text-black dark:text-white shadow-sm' : 'text-gray-400 dark:text-gray-500'}`}>FILE</button>
-                        <button onClick={() => setInputMethod('paste')} className={`px-4 py-1 text-[10px] font-bold tracking-widest ${inputMethod === 'paste' ? 'bg-white dark:bg-[#333333] text-black dark:text-white shadow-sm' : 'text-gray-400 dark:text-gray-500'}`}>EDIT</button>
+                  <div className="p-4 border-b border-gray-100 flex justify-between items-center shrink-0">
+                      <h2 className="text-lg font-bold tracking-tight">Resume Content</h2>
+                      <div className="flex bg-gray-100 p-1">
+                        <button onClick={() => setInputMethod('upload')} className={`px-4 py-1 text-[10px] font-bold tracking-widest ${inputMethod === 'upload' ? 'bg-white text-black shadow-sm' : 'text-gray-400'}`}>FILE</button>
+                        <button onClick={() => setInputMethod('paste')} className={`px-4 py-1 text-[10px] font-bold tracking-widest ${inputMethod === 'paste' ? 'bg-white text-black shadow-sm' : 'text-gray-400'}`}>EDIT</button>
                       </div>
                   </div>
                   
                   {inputMethod === 'upload' ? (
-                      <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-[#000000] p-12">
+                      <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 p-12">
                         <p className="text-xs font-bold text-gray-400 mb-8 uppercase tracking-widest">Supports .docx and .pdf</p>
                         <button onClick={() => fileInputRef.current?.click()} className="uber-button-primary px-12 uppercase tracking-widest text-xs font-bold">SELECT FILE</button>
-                        <input type="file" ref={fileInputRef} hidden accept=".docx,.pdf" onChange={(e) => handleFileUpload(e, 'workspace')} />
+                        <input type="file" ref={fileInputRef} hidden accept=".docx,.pdf" onChange={(e) => handleFileUpload(e, 'home')} />
                       </div>
                   ) : (
                       <RichEditor content={cvHtml} onChange={setCvHtml} className="flex-1 overflow-hidden" viewMode="fluid" />
@@ -941,24 +871,25 @@ const App: React.FC = () => {
 
                 {/* Right Column: JD + Controls */}
                 <div className="flex-1 flex flex-col min-h-0 gap-6">
-                  <div className="flex-1 flex flex-col bg-white dark:bg-[#141414] border border-gray-200 dark:border-[#333333] shadow-sm min-h-0">
-                    <JobUrlInput
-                      jdText={jdText}
-                      onJdChange={setJdText}
-                      fetchStatus={state.jdFetchStatus}
-                      onFetchUrl={handleFetchJobUrl}
-                      detectedCompany={state.detectedCompany}
-                      detectedJobTitle={state.detectedJobTitle}
+                  <div className="flex-1 flex flex-col bg-white border border-gray-200 shadow-sm min-h-0">
+                    <div className="p-4 border-b border-gray-100 shrink-0">
+                        <h2 className="text-lg font-bold tracking-tight">Job Description</h2>
+                    </div>
+                    <textarea 
+                      className="flex-1 w-full uber-input resize-none text-sm leading-relaxed bg-white border-0 focus:ring-0 p-4 font-mono"
+                      value={jdText}
+                      onChange={(e) => setJdText(e.target.value)}
+                      placeholder="Paste the target JD here..."
                     />
                   </div>
 
-                  <div className="bg-white dark:bg-[#141414] border border-gray-200 dark:border-[#333333] shadow-sm p-4 shrink-0 flex items-end gap-4 relative">
+                  <div className="bg-white border border-gray-200 shadow-sm p-4 shrink-0 flex items-end gap-4 relative">
                     <div className="w-1/3 relative">
                         <div className="flex items-center gap-1 mb-2">
-                          <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Mode</p>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Mode</p>
                           <div className="group relative">
-                              <span className="cursor-help text-gray-400 dark:text-gray-500 text-[10px]">ⓘ</span>
-                              <div className="absolute bottom-full left-0 mb-2 w-48 hidden group-hover:block bg-black dark:bg-white text-white dark:text-black text-[10px] p-3 rounded shadow-lg z-50 leading-relaxed">
+                              <span className="cursor-help text-gray-400 text-[10px]">ⓘ</span>
+                              <div className="absolute bottom-full left-0 mb-2 w-48 hidden group-hover:block bg-black text-white text-[10px] p-3 rounded shadow-lg z-50 leading-relaxed">
                                 <strong className="block mb-1 text-white">Conservative:</strong> Minimal wording tweaks.
                                 <strong className="block mb-1 text-white mt-2">Balanced:</strong> Improved phrasing & alignment.
                                 <strong className="block mb-1 text-white mt-2">Aggressive:</strong> Stronger keywords & confidence.
@@ -968,7 +899,7 @@ const App: React.FC = () => {
                         <select 
                           value={state.mode}
                           onChange={(e) => setState(s => ({ ...s, mode: e.target.value as RewriteMode }))}
-                          className="w-full bg-gray-50 dark:bg-[#141414] p-3 text-xs font-bold border border-gray-200 dark:border-[#333333] text-black dark:text-white uppercase tracking-widest outline-none focus:border-black dark:focus:border-white"
+                          className="w-full bg-gray-50 p-3 text-xs font-bold border border-gray-200 text-black uppercase tracking-widest outline-none focus:border-black"
                         >
                           {Object.values(RewriteMode).map(m => <option key={m} value={m}>{m}</option>)}
                         </select>
@@ -991,10 +922,10 @@ const App: React.FC = () => {
             )}
 
             {activeTab === 'analyze' && (
-              <div className="flex-1 overflow-auto bg-white dark:bg-[#141414] no-print relative scroll-smooth">
+              <div className="flex-1 overflow-auto bg-white no-print relative scroll-smooth">
                 {/* Toast Notification */}
                 {toastMessage && (
-                  <div className="fixed bottom-8 left-8 bg-black dark:bg-white text-white dark:text-black px-6 py-4 rounded shadow-2xl z-50 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                  <div className="fixed bottom-8 left-8 bg-black text-white px-6 py-4 rounded shadow-2xl z-50 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
                     <Check size={18} className="text-green-400" />
                     <span className="text-sm font-bold tracking-wide">{toastMessage}</span>
                   </div>
@@ -1002,15 +933,6 @@ const App: React.FC = () => {
 
                 <div className="p-8 md:p-12 max-w-[1600px] mx-auto w-full">
                   
-                  {/* Company Intel */}
-                  {(state.companyIntel || state.detectedCompany) && (
-                    <CompanyIntelCard
-                      intel={state.companyIntel}
-                      isLoading={false}
-                      companyName={state.detectedCompany}
-                    />
-                  )}
-
                   {/* Top Section: Scores (50-50) */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
                      <ATSScoreCard title="Initial Match" score={state.currentScore} highlightColor="#000000" />
@@ -1050,51 +972,39 @@ const App: React.FC = () => {
                   <div className="flex gap-16 items-start">
                     {/* Left Sidebar: TOC */}
                     <div className="hidden lg:block w-64 shrink-0 sticky top-8">
-                       <h3 className="font-bold text-xs uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-6">Contents</h3>
-                       <nav className="space-y-1 border-l-2 border-gray-100 dark:border-[#333333]">
+                       <h3 className="font-bold text-xs uppercase tracking-widest text-gray-400 mb-6">Contents</h3>
+                       <nav className="space-y-1 border-l-2 border-gray-100">
                           {state.originalSections.map(sec => (
-                             <a key={sec.id} href={`#sec-${sec.id}`} className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-black dark:hover:text-white hover:border-l-2 hover:border-black dark:hover:border-white -ml-[2px] transition-all truncate">
+                             <a key={sec.id} href={`#sec-${sec.id}`} className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 hover:text-black hover:border-l-2 hover:border-black -ml-[2px] transition-all truncate">
                                 {sec.title}
                              </a>
                           ))}
                           {state.skippableContent.length > 0 && (
-                             <a href="#sec-skippable" className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:border-l-2 hover:border-red-600 dark:hover:border-red-400 -ml-[2px] transition-all truncate">
+                             <a href="#sec-skippable" className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 hover:text-red-600 hover:border-l-2 hover:border-red-600 -ml-[2px] transition-all truncate">
                                 Skippable Content
                              </a>
                           )}
                           {state.profileSuggestions && state.profileSuggestions.length > 0 && (
-                             <a href="#sec-profile-suggestions" className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:border-l-2 hover:border-blue-600 dark:hover:border-blue-400 -ml-[2px] transition-all truncate">
+                             <a href="#sec-profile-suggestions" className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 hover:text-blue-600 hover:border-l-2 hover:border-blue-600 -ml-[2px] transition-all truncate">
                                 High Impact Additions
                              </a>
                           )}
-                          <a href="#sec-messages" className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:border-l-2 hover:border-blue-600 dark:hover:border-blue-400 -ml-[2px] transition-all truncate">
-                             Outreach
+                          <a href="#sec-messages" className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 hover:text-blue-600 hover:border-l-2 hover:border-blue-600 -ml-[2px] transition-all truncate">
+                             Application Messages
                           </a>
-                          {state.coverLetter && (
-                            <a href="#sec-cover-letter" className="block pl-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:border-l-2 hover:border-blue-600 dark:hover:border-blue-400 -ml-[2px] transition-all truncate">
-                              Cover Letter
-                            </a>
-                          )}
                        </nav>
                        
-                       <button
-                          onClick={() => setActiveTab('apply')}
+                       <button 
+                          onClick={() => setActiveTab('preview')}
                           className="mt-12 w-full uber-button-primary py-4 font-bold tracking-[0.2em] text-[10px] uppercase shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-1"
                         >
-                          APPLY NOW →
+                          PROCEED TO EDITOR
                        </button>
 
-                       <button
-                          onClick={() => setActiveTab('preview')}
-                          className="mt-3 w-full bg-white dark:bg-[#141414] border border-gray-200 dark:border-[#333333] text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white hover:border-black dark:hover:border-white py-3 font-bold tracking-[0.2em] text-[10px] uppercase transition-all"
-                        >
-                          OPEN EDITOR
-                       </button>
-
-                       <button
+                       <button 
                           onClick={handleGenerate}
                           disabled={state.isLoading}
-                          className="mt-3 w-full bg-white dark:bg-[#141414] border border-gray-200 dark:border-[#333333] text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white hover:border-black dark:hover:border-white py-3 font-bold tracking-[0.2em] text-[10px] uppercase transition-all flex items-center justify-center gap-2"
+                          className="mt-4 w-full bg-white border border-gray-200 text-gray-600 hover:text-black hover:border-black py-3 font-bold tracking-[0.2em] text-[10px] uppercase transition-all flex items-center justify-center gap-2"
                         >
                           <RefreshCw size={14} className={state.isLoading ? "animate-spin" : ""} />
                           {state.isLoading ? "Regenerating..." : "Regenerate Analysis"}
@@ -1105,7 +1015,7 @@ const App: React.FC = () => {
                     <div className="flex-1 min-w-0 space-y-24">
                        {state.originalSections.length === 0 ? (
                           <div className="space-y-8 opacity-60 pointer-events-none">
-                            <div className="uber-card p-12 bg-white dark:bg-[#141414] flex flex-col items-center justify-center text-center">
+                            <div className="uber-card p-12 bg-white flex flex-col items-center justify-center text-center">
                                <p className="text-gray-500">Analysis will appear here.</p>
                             </div>
                           </div>
@@ -1117,7 +1027,7 @@ const App: React.FC = () => {
                               return (
                                 <div id={`sec-${sec.id}`} key={sec.id} className="scroll-mt-8">
                                    <div className="uber-card overflow-hidden">
-                                       <div className="bg-black dark:bg-black text-white px-8 py-4">
+                                       <div className="bg-black text-white px-8 py-4">
                                           <h4 className="font-bold uppercase tracking-widest text-[10px]">{sec.title}</h4>
                                        </div>
                                        <div className="p-8">
@@ -1125,14 +1035,14 @@ const App: React.FC = () => {
                                             <div className="space-y-12">
                                                {sectionSugs.map(s => (
                                                  <div key={s.id} className="border border-gray-100 rounded-sm shadow-sm">
-                                                    <div className="bg-gray-50/50 dark:bg-[#141414]/50 p-6 space-y-4">
+                                                    <div className="bg-gray-50/50 p-6 space-y-4">
                                                        <div className="diff-removed text-sm opacity-60">
                                                           <div dangerouslySetInnerHTML={{ __html: s.originalHtml }} />
                                                        </div>
                                                        <div className="relative group">
                                                           <div className="absolute -top-3 left-0 bg-green-100 text-green-800 text-[9px] px-2 py-0.5 font-bold uppercase tracking-widest rounded-r">Editable</div>
                                                           <div 
-                                                            className="diff-added text-sm outline-none p-3 -mx-3 rounded transition-all cursor-text focus:bg-white dark:focus:bg-[#1F1F1F] focus:ring-2 focus:ring-green-500/20"
+                                                            className="diff-added text-sm outline-none p-3 -mx-3 rounded transition-all cursor-text focus:bg-white focus:ring-2 focus:ring-green-500/20"
                                                             contentEditable
                                                             suppressContentEditableWarning
                                                             onBlur={(e) => updateSuggestionText(s.id, e.currentTarget.innerHTML)}
@@ -1147,7 +1057,7 @@ const App: React.FC = () => {
                                           ) : (
                                             <div className="text-black text-sm">
                                               <div dangerouslySetInnerHTML={{ __html: sec.htmlContent }} className="cv-content" />
-                                              <div className="mt-8 pt-4 border-t border-gray-50 dark:border-[#333333] text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
+                                              <div className="mt-8 pt-4 border-t border-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                                                 No optimizations needed.
                                               </div>
                                             </div>
@@ -1167,22 +1077,22 @@ const App: React.FC = () => {
                                         <Sparkles size={16} className="text-yellow-300" />
                                         <h4 className="font-bold uppercase tracking-widest text-[10px]">High Impact Additions</h4>
                                       </div>
-                                      <span className="text-[10px] bg-white dark:bg-[#141414] text-blue-600 dark:text-blue-400 px-2 py-0.5 font-bold rounded">Score Boosters</span>
+                                      <span className="text-[10px] bg-white text-blue-600 px-2 py-0.5 font-bold rounded">Score Boosters</span>
                                    </div>
-                                   <div className="p-8 bg-blue-50/30 dark:bg-blue-900/10">
-                                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-6 font-medium">Based on your profile, adding these points (if true) could significantly boost your match score:</p>
+                                   <div className="p-8 bg-blue-50/30">
+                                      <p className="text-xs text-gray-500 mb-6 font-medium">Based on your profile, adding these points (if true) could significantly boost your match score:</p>
                                       <div className="space-y-6">
                                         {state.profileSuggestions.map((item, idx) => (
-                                          <div key={idx} className="bg-white dark:bg-[#141414] p-6 rounded border border-blue-100 dark:border-blue-900 shadow-sm">
-                                            <p className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-3 flex items-start gap-2">
-                                              <span className="text-blue-600 dark:text-blue-400">Q:</span> {item.question}
+                                          <div key={idx} className="bg-white p-6 rounded border border-blue-100 shadow-sm">
+                                            <p className="text-sm font-bold text-gray-800 mb-3 flex items-start gap-2">
+                                              <span className="text-blue-600">Q:</span> {item.question}
                                             </p>
-                                            <div className="pl-4 border-l-2 border-blue-200 dark:border-blue-900 ml-1">
-                                              <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1">Suggested Point:</p>
-                                              <div className="bg-gray-50 dark:bg-[#1F1F1F] p-3 rounded text-sm text-gray-800 dark:text-gray-200 font-medium mb-2">
+                                            <div className="pl-4 border-l-2 border-blue-200 ml-1">
+                                              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Suggested Point:</p>
+                                              <div className="bg-gray-50 p-3 rounded text-sm text-gray-800 font-medium mb-2">
                                                 {item.suggestedPoint}
                                               </div>
-                                              <p className="text-[10px] text-gray-500 dark:text-gray-400 italic">
+                                              <p className="text-[10px] text-gray-500 italic">
                                                 <span className="font-bold">Why:</span> {item.rationale}
                                               </p>
                                               <button 
@@ -1190,7 +1100,7 @@ const App: React.FC = () => {
                                                   navigator.clipboard.writeText(item.suggestedPoint);
                                                   showToast("Suggestion copied! Paste it into your CV.");
                                                 }}
-                                                className="mt-3 text-[10px] font-bold uppercase tracking-widest text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                                                className="mt-3 text-[10px] font-bold uppercase tracking-widest text-blue-600 hover:underline flex items-center gap-1"
                                               >
                                                 <Copy size={12} /> Copy to CV
                                               </button>
@@ -1210,8 +1120,8 @@ const App: React.FC = () => {
                                    <div className="bg-red-50 text-red-800 px-8 py-4 border-b border-red-100">
                                       <h4 className="font-bold uppercase tracking-widest text-[10px]">Skippable Content (Save Space)</h4>
                                    </div>
-                                   <div className="p-8 bg-white dark:bg-[#141414]">
-                                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-6 font-medium">The following parts of your CV appear less relevant to this specific role and could be removed to improve density:</p>
+                                   <div className="p-8 bg-white">
+                                      <p className="text-xs text-gray-500 mb-6 font-medium">The following parts of your CV appear less relevant to this specific role and could be removed to improve density:</p>
                                       <ul className="space-y-4">
                                         {state.skippableContent.map((item, idx) => (
                                           <li key={idx} className="flex items-start gap-4 text-sm text-gray-700">
@@ -1226,60 +1136,114 @@ const App: React.FC = () => {
                            )}
 
                            {/* Messages */}
-                           <div id="sec-messages" className="scroll-mt-8 space-y-8">
+                           <div id="sec-messages" className="scroll-mt-8 grid grid-cols-1 xl:grid-cols-2 gap-8">
                               {/* Introduction Message */}
-                              <div className="uber-card overflow-hidden border-2 border-black dark:border-[#333333] flex flex-col">
-                                 <div className="bg-black dark:bg-[#1A1A1A] text-white px-8 py-4 flex justify-between items-center">
+                              <div className="uber-card overflow-hidden border-2 border-black flex flex-col h-full xl:col-span-2">
+                                 <div className="bg-black dark:bg-black text-white px-8 py-4 flex justify-between items-center">
                                     <h4 className="font-bold uppercase tracking-widest text-[10px]">"Tell Me About Yourself" (Gayle McDowell Style)</h4>
                                  </div>
-                                 <div className="p-8 bg-gray-50 dark:bg-[#1A1A1A] flex flex-col">
+                                 <div className="p-8 bg-gray-50 dark:bg-[#141414] flex-1 flex flex-col">
                                     <div className="mb-6 text-sm text-gray-600 flex justify-between items-start">
                                       <div>
                                         <p className="font-bold mb-1">Your 60-Second Intro</p>
                                         <p className="text-xs opacity-70">Structured as: Present → Past → Pattern → Forward. Tailored to the JD domain.</p>
                                       </div>
-                                      <button
-                                         onClick={() => { navigator.clipboard.writeText(state.introductionMessage || ''); showToast("Intro message copied!"); }}
+                                      <button 
+                                         onClick={() => {
+                                            navigator.clipboard.writeText(state.introductionMessage || '');
+                                            showToast("Intro message copied!");
+                                         }}
                                          className="p-2 hover:bg-gray-200 dark:hover:bg-[#333333] rounded-full transition-colors text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
                                          title="Copy to Clipboard"
                                        >
                                          <Copy size={18} />
                                        </button>
                                     </div>
-                                    <textarea
-                                      className="w-full uber-input text-sm font-sans bg-white dark:bg-[#141414] dark:text-white p-4 border-0 focus:ring-0 resize-none leading-relaxed"
+                                    <textarea 
+                                      className="w-full uber-input text-sm font-sans flex-1 bg-white dark:bg-[#141414] dark:text-white p-4 border-0 focus:ring-0 resize-none leading-relaxed"
                                       rows={6}
                                       value={state.introductionMessage || ''}
-                                      onChange={(e) => setState(s => ({ ...s, introductionMessage: e.target.value }))}
+                                      onChange={(e) => {
+                                        setState(s => ({ ...s, introductionMessage: e.target.value }));
+                                      }}
                                       placeholder="Draft your intro here..."
                                     />
                                  </div>
                               </div>
 
-                              {/* Outreach Options */}
-                              <div>
-                                <div className="flex items-center gap-3 mb-6">
-                                  <h3 className="font-bold text-lg">Outreach Strategy</h3>
-                                  <span className="text-xs text-gray-400 dark:text-gray-600">Choose your approach and get a ready-to-send message</span>
-                                </div>
-                                <OutreachSelector
-                                  options={state.outreachOptions}
-                                  chosenId={state.chosenOutreachId}
-                                  onChoose={handleChooseOutreach}
-                                  onGenerateCoverLetter={handleGenerateCoverLetter}
-                                  isCoverLetterLoading={state.isCoverLetterLoading}
-                                  coverLetterReady={!!state.coverLetter}
-                                />
+                              {/* LinkedIn Message */}
+                              <div className="uber-card overflow-hidden border-2 border-black dark:border-[#333333] flex flex-col h-full">
+                                 <div className="bg-black dark:bg-black text-white px-8 py-4 flex justify-between items-center">
+                                    <h4 className="font-bold uppercase tracking-widest text-[10px]">LinkedIn "Top Choice"</h4>
+                                    <span className="text-[10px] bg-white text-black px-2 py-0.5 font-bold rounded">{(state.topChoiceMessage || '').length}/400</span>
+                                 </div>
+                                 <div className="p-8 bg-gray-50 dark:bg-[#141414] flex-1 flex flex-col">
+                                    <div className="mb-6 text-sm text-gray-600 flex justify-between items-start">
+                                      <div>
+                                        <p className="font-bold mb-1">Mark this job as a top choice</p>
+                                        <p className="text-xs opacity-70">Applicants who do this are 43% more likely to hear back.</p>
+                                      </div>
+                                      <button 
+                                         onClick={() => {
+                                            navigator.clipboard.writeText(state.topChoiceMessage || '');
+                                            showToast("LinkedIn message copied!");
+                                         }}
+                                         className="p-2 hover:bg-gray-200 dark:hover:bg-[#333333] rounded-full transition-colors text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
+                                         title="Copy to Clipboard"
+                                       >
+                                         <Copy size={18} />
+                                       </button>
+                                    </div>
+                                    <textarea 
+                                      className="w-full uber-input text-sm font-sans flex-1 bg-white dark:bg-[#141414] dark:text-white p-4 border-0 focus:ring-0 resize-none leading-relaxed"
+                                      rows={12}
+                                      value={state.topChoiceMessage || ''}
+                                      onChange={(e) => {
+                                        if (e.target.value.length <= 400) {
+                                          setState(s => ({ ...s, topChoiceMessage: e.target.value }));
+                                        }
+                                      }}
+                                      placeholder="Draft your message here..."
+                                    />
+                                 </div>
                               </div>
 
-                              {/* Cover Letter */}
-                              {(state.coverLetter || state.isCoverLetterLoading) && (
-                                <CoverLetterPanel
-                                  html={state.coverLetter}
-                                  isLoading={state.isCoverLetterLoading}
-                                  onChange={(html) => setState(s => ({ ...s, coverLetter: html }))}
-                                />
-                              )}
+                              {/* Wellfound Message */}
+                              <div className="uber-card overflow-hidden border-2 border-black dark:border-[#333333] flex flex-col h-full">
+                                 <div className="bg-black dark:bg-black text-white px-8 py-4 flex justify-between items-center">
+                                    <h4 className="font-bold uppercase tracking-widest text-[10px]">Wellfound Interest</h4>
+                                    <span className="text-[10px] bg-white text-black px-2 py-0.5 font-bold rounded">{(state.wellfoundMessage || '').length}/400</span>
+                                 </div>
+                                 <div className="p-8 bg-gray-50 dark:bg-[#141414] flex-1 flex flex-col">
+                                    <div className="mb-6 text-sm text-gray-600 flex justify-between items-start">
+                                      <div>
+                                        <p className="font-bold mb-1">What interests you?</p>
+                                        <p className="text-xs opacity-70">Honest and raw response tailored for Wellfound.</p>
+                                      </div>
+                                      <button 
+                                         onClick={() => {
+                                            navigator.clipboard.writeText(state.wellfoundMessage || '');
+                                            showToast("Wellfound message copied!");
+                                         }}
+                                         className="p-2 hover:bg-gray-200 dark:hover:bg-[#333333] rounded-full transition-colors text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white"
+                                         title="Copy to Clipboard"
+                                       >
+                                         <Copy size={18} />
+                                       </button>
+                                    </div>
+                                    <textarea 
+                                      className="w-full uber-input text-sm font-sans flex-1 bg-white dark:bg-[#141414] dark:text-white p-4 border-0 focus:ring-0 resize-none leading-relaxed"
+                                      rows={12}
+                                      value={state.wellfoundMessage || ''}
+                                      onChange={(e) => {
+                                        if (e.target.value.length <= 400) {
+                                          setState(s => ({ ...s, wellfoundMessage: e.target.value }));
+                                        }
+                                      }}
+                                      placeholder="Draft your message here..."
+                                    />
+                                 </div>
+                              </div>
                            </div>
                          </>
                        )}
@@ -1290,8 +1254,8 @@ const App: React.FC = () => {
             )}
 
             {activeTab === 'preview' && (
-              <div className="flex-1 bg-[#E8E8E8] dark:bg-[#0A0A0A] flex flex-col items-center overflow-hidden">
-                <div className="w-full bg-white dark:bg-[#141414] border-b border-gray-200 dark:border-[#333333] p-4 px-8 flex justify-between items-center shrink-0 shadow-sm z-20 no-print">
+              <div className="flex-1 bg-[#E8E8E8] flex flex-col items-center overflow-hidden">
+                <div className="w-full bg-white border-b border-gray-200 p-4 px-8 flex justify-between items-center shrink-0 shadow-sm z-20 no-print">
                   <div>
                       <h2 className="text-lg font-bold tracking-tight">Final Editor</h2>
                       <p className="text-xs text-gray-500 font-medium">Make final tweaks before downloading.</p>
@@ -1316,11 +1280,11 @@ const App: React.FC = () => {
                     <div className="max-w-[210mm] mx-auto mt-12 mb-24 grid grid-cols-1 md:grid-cols-2 gap-8">
                       {/* LinkedIn Message */}
                       <div className="uber-card overflow-hidden border-2 border-black dark:border-[#333333] flex flex-col">
-                         <div className="bg-black dark:bg-[#1A1A1A] text-white px-8 py-4 flex justify-between items-center">
+                         <div className="bg-black dark:bg-black text-white px-8 py-4 flex justify-between items-center">
                             <h4 className="font-bold uppercase tracking-widest text-[10px]">LinkedIn "Top Choice"</h4>
                             <span className="text-[10px] bg-white dark:bg-[#141414] text-black dark:text-white px-2 py-0.5 font-bold rounded">{(state.topChoiceMessage || '').length}/400</span>
                          </div>
-                         <div className="p-8 bg-gray-50 dark:bg-[#1A1A1A] flex-1 flex flex-col">
+                         <div className="p-8 bg-gray-50 dark:bg-[#141414] flex-1 flex flex-col">
                             <div className="mb-4 text-sm text-gray-600">
                               <p className="font-bold mb-1">Mark this job as a top choice (Optional)</p>
                               <p>Applicants who let hirers know when a job is their top choice are 43% more likely to hear back.</p>
@@ -1351,11 +1315,11 @@ const App: React.FC = () => {
 
                       {/* Wellfound Message */}
                       <div className="uber-card overflow-hidden border-2 border-black dark:border-[#333333] flex flex-col">
-                         <div className="bg-black dark:bg-[#1A1A1A] text-white px-8 py-4 flex justify-between items-center">
+                         <div className="bg-black dark:bg-black text-white px-8 py-4 flex justify-between items-center">
                             <h4 className="font-bold uppercase tracking-widest text-[10px]">Wellfound Interest</h4>
                             <span className="text-[10px] bg-white dark:bg-[#141414] text-black dark:text-white px-2 py-0.5 font-bold rounded">{(state.wellfoundMessage || '').length}/400</span>
                          </div>
-                         <div className="p-8 bg-gray-50 dark:bg-[#1A1A1A] flex-1 flex flex-col">
+                         <div className="p-8 bg-gray-50 dark:bg-[#141414] flex-1 flex flex-col">
                             <div className="mb-4 text-sm text-gray-600">
                               <p className="font-bold mb-1">What interests you about working for this company?</p>
                               <p>An honest and raw response tailored for Wellfound applications.</p>
@@ -1386,26 +1350,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-            {activeTab === 'apply' && (
-              <div className="flex-1 overflow-auto bg-[#F9F9F9] dark:bg-[#0A0A0A]">
-                <ApplyPanel
-                  jobUrl={jobUrl || undefined}
-                  detectedCompany={state.detectedCompany}
-                  detectedJobTitle={state.detectedJobTitle}
-                  autofillData={extractAutofillData(
-                    state.currentScore?.parsedCv,
-                    user?.email || '',
-                    state.coverLetter,
-                    state.chosenOutreachId
-                      ? (state.outreachOptions.find(o => o.id === state.chosenOutreachId)?.linkedInMessage || '')
-                      : ''
-                  )}
-                  chosenOutreach={state.outreachOptions.find(o => o.id === state.chosenOutreachId) || null}
-                  onDownloadPDF={handleDownloadPDF}
-                  onDownloadDOCX={handleDownloadDOCX}
-                />
               </div>
             )}
           </>
