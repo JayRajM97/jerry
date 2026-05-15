@@ -121,3 +121,47 @@ export interface AppState {
   isLoading: boolean;
   loadingStep: string;
 }
+
+// ─── Outreach Types ───────────────────────────────────────────────────────────
+
+export interface CompanyInfo {
+  name: string;
+  website?: string;
+  description?: string;
+  contactName?: string;
+  contactEmail?: string;
+}
+
+export interface UserBackground {
+  name: string;
+  currentTitle: string;
+  summary: string;
+  topSkills: string[];
+}
+
+export type OutreachEmailType = 'initial' | 'follow_up_1' | 'follow_up_2';
+
+export interface OutreachEmail {
+  subject: string;
+  body: string;
+  sendAfterDays: number;
+  type: OutreachEmailType;
+}
+
+export type OutreachStatus =
+  | 'Research'
+  | 'Draft'
+  | 'Sent Email 1'
+  | 'Sent Email 2'
+  | 'Sent Email 3'
+  | 'Replied'
+  | 'Closed';
+
+export interface EmailSequence {
+  companyInfo: CompanyInfo;
+  emails: OutreachEmail[];
+  notionPageId?: string;
+  gmailThreadId?: string;
+  status: OutreachStatus;
+  createdAt: number;
+}
