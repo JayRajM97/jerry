@@ -10,9 +10,9 @@ const LoginScreen: React.FC<Props> = ({ onLogin, isLoading }) => {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 text-center">
       <div className="max-w-md w-full bg-white p-12 shadow-xl border border-gray-100 flex flex-col items-center">
-        <div className="bg-black text-white font-bold px-4 py-2 text-xl mb-8">RU</div>
-        
-        <h1 className="text-3xl font-bold tracking-tight mb-2">Resume Updater</h1>
+        <div className="bg-black text-white font-bold px-4 py-2 text-xl mb-8">JM</div>
+
+        <h1 className="text-3xl font-bold tracking-tight mb-2">Jerry Maguire</h1>
         <p className="text-gray-500 mb-12">AI-Powered ATS Optimization & Version Control</p>
 
         <div className="w-full space-y-4">

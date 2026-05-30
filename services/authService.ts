@@ -30,11 +30,12 @@ export const authService = {
   signInWithGoogle: async (): Promise<UserProfile> => {
     await new Promise(resolve => setTimeout(resolve, 1500)); // Network delay simulation
 
+    // Single-user local tool: seed the mock with the actual user identity.
     const mockUser: UserProfile = {
       id: 'usr_' + Math.random().toString(36).substr(2, 9),
-      name: 'Jerry Maguire',
-      email: 'jerry@sportsmanagement.com',
-      avatarUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Jerry'
+      name: 'Jayraj Makhar',
+      email: 'jayraj.mka@gmail.com',
+      avatarUrl: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Jayraj'
     };
 
     localStorage.setItem(SESSION_KEY, JSON.stringify(mockUser));

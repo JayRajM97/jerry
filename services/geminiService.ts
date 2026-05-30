@@ -2,7 +2,7 @@
 import { GoogleGenAI, Type, GenerateContentParameters } from "@google/genai";
 import { CVSection, Suggestion, RewriteMode } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.GEMINI_API_KEY });
 
 /**
  * Helper to call Gemini with exponential backoff retry logic.

@@ -1,14 +1,15 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { 
-  CVSection, 
-  Suggestion, 
-  ATSScore, 
-  RewriteMode, 
+import {
+  CVSection,
+  Suggestion,
+  ATSScore,
+  RewriteMode,
   AppState,
   HistoryItem,
   AppView,
-  UserProfile
+  UserProfile,
+  ApplicationProfile
 } from './types';
 import { Copy, Check, RefreshCw, Sparkles, Moon, Sun } from 'lucide-react';
 import { 
@@ -25,6 +26,8 @@ import ATSScoreCard from './components/ATSScoreCard';
 import RichEditor from './components/RichEditor';
 import RationalePanel from './components/RationalePanel';
 import LoginScreen from './components/LoginScreen';
+import AutoApplyPanel from './components/AutoApplyPanel';
+import ApplicationProfileForm from './components/ApplicationProfileForm';
 import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
 // @ts-ignore
@@ -76,6 +79,8 @@ const App: React.FC = () => {
   // --- Persistent Data State (Fetched from DB) ---
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [masterCvHtml, setMasterCvHtml] = useState<string>('');
+  const [applicationProfile, setApplicationProfile] = useState<ApplicationProfile | null>(null);
+  const [submittedKeys, setSubmittedKeys] = useState<string[]>([]);
 
   // --- View State ---
   const [currentView, setCurrentView] = useState<AppView>('workspace');
@@ -139,21 +144,50 @@ const App: React.FC = () => {
       setIsAuthLoading(false);
 
       if (currentUser) {
-        loadUserData(currentUser.id);
+        loadUserData(currentUser.id, currentUser);
       }
     };
     initApp();
   }, []);
 
-  const loadUserData = async (userId: string) => {
+  const makeDefaultProfile = (u: UserProfile | null): ApplicationProfile => {
+    const [first, ...rest] = (u?.name || '').trim().split(/\s+/);
+    return {
+      firstName: first || '',
+      lastName: rest.join(' ') || '',
+      email: u?.email || '',
+      phone: '',
+      location: '',
+      workAuthorized: null,
+      needsVisaSponsorship: null,
+      linkedinUrl: '',
+      githubUrl: '',
+      portfolioUrl: '',
+      gender: '',
+      currentCompensation: '',
+      expectedCompensation: '',
+      noticePeriod: '',
+      aiShowcaseLink: '',
+      yearsExperience: '',
+      industry: '',
+      resumePath: '',
+      declineDemographics: true,
+    };
+  };
+
+  const loadUserData = async (userId: string, forUser: UserProfile | null) => {
     // Parallel data fetching
-    const [fetchedHistory, fetchedMaster] = await Promise.all([
+    const [fetchedHistory, fetchedMaster, fetchedAppProfile, fetchedSubmitted] = await Promise.all([
       databaseService.getHistory(userId),
-      databaseService.getMasterCV(userId)
+      databaseService.getMasterCV(userId),
+      databaseService.getApplicationProfile(userId),
+      databaseService.getSubmittedKeys(userId)
     ]);
 
     setHistory(fetchedHistory);
     setMasterCvHtml(fetchedMaster || `<p>${SAMPLE_CV.split('\n').join('</p><p>')}</p>`);
+    setSubmittedKeys(fetchedSubmitted);
+    setApplicationProfile(fetchedAppProfile || makeDefaultProfile(forUser));
     
     // Initialize workspace with master CV if available
     if (fetchedMaster && !cvHtml) {
@@ -171,7 +205,7 @@ const App: React.FC = () => {
     try {
       const newUser = await authService.signInWithGoogle();
       setUser(newUser);
-      await loadUserData(newUser.id);
+      await loadUserData(newUser.id, newUser);
     } catch (e) {
       console.error("Login failed", e);
       alert("Login failed. Please try again.");
@@ -186,6 +220,34 @@ const App: React.FC = () => {
     setHistory([]);
     setMasterCvHtml('');
     setCvHtml('');
+    setApplicationProfile(null);
+    setSubmittedKeys([]);
+  };
+
+  const saveApplicationProfile = async (profile: ApplicationProfile) => {
+    setApplicationProfile(profile);
+    if (user) await databaseService.saveApplicationProfile(user.id, profile);
+  };
+
+  const handleApplyResult = async (result: import('./types').ApplyResult) => {
+    if (!user || !result.boardToken || !result.jobId) return;
+    // Persist per-posting Q+A audit (no cross-company reuse).
+    await databaseService.saveApplicationLog({
+      id: `${Date.now()}`,
+      userId: user.id,
+      boardToken: result.boardToken,
+      jobId: result.jobId,
+      jobTitle: result.jobTitle || '',
+      company: result.company || '',
+      status: result.status,
+      timestamp: Date.now(),
+      answers: result.answers || [],
+    });
+    // Dedupe only after a real submit.
+    if (result.status === 'submitted') {
+      setSubmittedKeys(prev => [...prev, `${result.boardToken}/${result.jobId}`]);
+      await databaseService.recordSubmitted(user.id, result.boardToken, result.jobId);
+    }
   };
 
 
@@ -703,8 +765,8 @@ const App: React.FC = () => {
       <header className="bg-black dark:bg-black dark:border-b dark:border-[#333333] text-white h-16 flex items-center px-8 shrink-0 z-50 no-print justify-between">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-4 cursor-pointer" onClick={startNewApplication}>
-            <div className="bg-white dark:bg-black text-black dark:text-white border dark:border-white font-bold px-3 py-1 text-base">RU</div>
-            <h1 className="text-lg font-bold tracking-tight">Resume Updater</h1>
+            <div className="bg-white dark:bg-black text-black dark:text-white border dark:border-white font-bold px-3 py-1 text-base">JM</div>
+            <h1 className="text-lg font-bold tracking-tight">Jerry Maguire</h1>
           </div>
           
           <div className="h-8 w-px bg-gray-800 mx-2"></div>
@@ -812,8 +874,8 @@ const App: React.FC = () => {
 
         {/* === PROFILE VIEW === */}
         {currentView === 'profile' && (
-           <div className="p-12 max-w-5xl mx-auto w-full h-full overflow-hidden flex flex-col">
-              <div className="flex justify-between items-end mb-8 shrink-0">
+           <div className="p-12 max-w-5xl mx-auto w-full h-full overflow-y-auto flex flex-col gap-8">
+              <div className="flex justify-between items-end shrink-0">
                   <div>
                     <h2 className="text-3xl font-bold mb-2">Master Resume</h2>
                     <p className="text-gray-500 dark:text-gray-400">This resume will be used as the starting point for all new applications.</p>
@@ -823,14 +885,17 @@ const App: React.FC = () => {
                      <input type="file" ref={fileInputRef} hidden accept=".docx,.pdf" onChange={(e) => handleFileUpload(e, 'profile')} />
                   </div>
               </div>
-              <div className="flex-1 uber-card overflow-hidden flex flex-col">
-                   <RichEditor 
-                      content={masterCvHtml} 
-                      onChange={updateMasterCV} 
-                      className="h-full w-full border-0" 
-                      viewMode="fluid" 
+              <div className="uber-card overflow-hidden flex flex-col min-h-[400px]">
+                   <RichEditor
+                      content={masterCvHtml}
+                      onChange={updateMasterCV}
+                      className="h-full w-full border-0"
+                      viewMode="fluid"
                    />
               </div>
+              {applicationProfile && (
+                <ApplicationProfileForm value={applicationProfile} onSave={saveApplicationProfile} />
+              )}
            </div>
         )}
 
@@ -908,6 +973,16 @@ const App: React.FC = () => {
                       ) : 'ANALYZE MATCH'}
                     </button>
                   </div>
+
+                  <AutoApplyPanel
+                    profile={applicationProfile}
+                    cvHtml={finalPreviewHtml || cvHtml}
+                    jdText={jdText}
+                    submittedKeys={submittedKeys}
+                    onJobFetched={setJdText}
+                    onResult={handleApplyResult}
+                    onEditProfile={() => setCurrentView('profile')}
+                  />
                 </div>
               </div>
             )}
