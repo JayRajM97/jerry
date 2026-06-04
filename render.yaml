@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: jerry-maguire
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false           # set manually in Render dashboard; not committed.
+      - key: HEADLESS
+        value: "true"
+      - key: APPLY_DRY_RUN
+        value: "false"        # flip to "true" to force dry-run on prod without redeploying.
+      - key: NODE_ENV
+        value: production

@@ -1,5 +1,8 @@
 import './env';
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 import { resolveJob, buildFieldPlan, runApply } from './greenhouse';
 import type { ApplicationProfile } from '../types';
 
@@ -74,6 +77,17 @@ app.post('/api/apply', async (req, res) => {
     res.end();
   }
 });
+
+// In production (Render), serve the built Vite SPA from the same Express process so
+// the user gets a single deployment. In dev, Vite runs separately on :3000 and proxies /api here.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.resolve(__dirname, '..', 'dist');
+if (process.env.NODE_ENV === 'production' && existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get(/^(?!\/api).*/, (_req, res) => {
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`[auto-apply] server on :${PORT}  forceDryRun=${FORCE_DRY_RUN}  headless=${HEADLESS}`);

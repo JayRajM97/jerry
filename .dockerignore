@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+recordings
+.git
+.env
+.env.local
+*.log
+.DS_Store
+.vscode
+.idea
+.claude
+voice
+*.pdf

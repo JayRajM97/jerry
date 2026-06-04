@@ -1,7 +1,7 @@
 import { chromium, Browser, Page } from 'playwright';
-import { mkdtempSync } from 'fs';
+import { mkdirSync, mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, resolve as resolvePath } from 'path';
 import type { ApplicationProfile, ApplyResult } from '../types';
 import { generateApplicationAnswers } from './gemini';
 
@@ -334,6 +334,19 @@ export async function runApply(opts: {
 
   // Slow down actions when visible so the user can follow the automation.
   const browser = await chromium.launch({ headless, slowMo: headless ? 0 : 350 });
+
+  // Record video only in local/dev runs (never in production — Render disk is ephemeral).
+  // Toggle by env RECORD_VIDEO=1/true, or implicitly when running non-headless in dev.
+  const recordVideoEnv = (process.env.RECORD_VIDEO || '').toLowerCase();
+  const recordVideo = recordVideoEnv === '1' || recordVideoEnv === 'true'
+    || (process.env.NODE_ENV !== 'production' && !headless);
+  let videoDir: string | undefined;
+  if (recordVideo) {
+    videoDir = resolvePath(process.cwd(), 'recordings', `${job.boardToken}_${job.jobId}_${Date.now()}`);
+    mkdirSync(videoDir, { recursive: true });
+    progress('navigate', `Recording video to ${videoDir.replace(process.cwd() + '/', '')}`);
+  }
+
   try {
     // Prefer the user's real resume file when provided; otherwise render the CV HTML to PDF.
     let resolvedResumePath: string;
@@ -346,7 +359,11 @@ export async function runApply(opts: {
     }
     const resumeFileName = resolvedResumePath.split('/').pop() || `${resumeBase}.pdf`;
 
-    const page = await browser.newPage();
+    // BrowserContext (not browser.newPage) is required for video capture.
+    const context = await browser.newContext(
+      videoDir ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 800 } } } : undefined,
+    );
+    const page = await context.newPage();
     progress('navigate', `Opening ${job.applyUrl}`);
     await page.goto(job.applyUrl, { waitUntil: 'domcontentloaded' });
     // Wait for the React form to hydrate before filling, else change handlers (e.g. resume) are missed.

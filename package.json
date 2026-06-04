@@ -8,6 +8,7 @@
     "dev:web": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "vite build",
+    "start": "NODE_ENV=production tsx server/index.ts",
     "lint": "tsc --noEmit",
     "preview": "vite preview"
   },
