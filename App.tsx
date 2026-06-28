@@ -11,7 +11,7 @@ import {
   UserProfile,
   ApplicationProfile
 } from './types';
-import { Copy, Check, RefreshCw, Sparkles, Moon, Sun } from 'lucide-react';
+import { Copy, Check, RefreshCw, Sparkles, Moon, Sun, X, CheckCircle2, Circle } from 'lucide-react';
 import { 
   analyzeResume, 
   calculateATSScore,
@@ -150,30 +150,27 @@ const App: React.FC = () => {
     initApp();
   }, []);
 
-  const makeDefaultProfile = (u: UserProfile | null): ApplicationProfile => {
-    const [first, ...rest] = (u?.name || '').trim().split(/\s+/);
-    return {
-      firstName: first || '',
-      lastName: rest.join(' ') || '',
-      email: u?.email || '',
-      phone: '',
-      location: '',
-      workAuthorized: null,
-      needsVisaSponsorship: null,
-      linkedinUrl: '',
-      githubUrl: '',
-      portfolioUrl: '',
-      gender: '',
-      currentCompensation: '',
-      expectedCompensation: '',
-      noticePeriod: '',
-      aiShowcaseLink: '',
-      yearsExperience: '',
-      industry: '',
-      resumePath: '',
-      declineDemographics: true,
-    };
-  };
+  const makeDefaultProfile = (_u: UserProfile | null): ApplicationProfile => ({
+    firstName: 'Jayraj',
+    lastName: 'Makhar',
+    email: 'jayraj.mka@gmail.com',
+    phone: '+919993639957',
+    location: 'Bangalore, India',
+    workAuthorized: true,          // authorized in India; set false when applying to US roles
+    needsVisaSponsorship: false,   // no sponsorship needed in India; true for US roles
+    linkedinUrl: 'https://linkedin.com/in/jayrajmakhar',
+    githubUrl: 'https://github.com/JayRajM97',
+    portfolioUrl: 'https://jayrajmakhar.com',
+    gender: 'Male',
+    currentCompensation: '32.5L base + 40L ESOPs',
+    expectedCompensation: '40L + Variable',
+    noticePeriod: 'Immediately available — 0 days notice',
+    aiShowcaseLink: 'https://shopos.ai',
+    yearsExperience: '6.5',
+    industry: 'SaaS / internet',
+    resumePath: '/Users/harshwardhansolanki/Documents/jay-claude/jerry/2026 - Jayraj Makhar - AI Product Manager.pdf',
+    declineDemographics: true,
+  });
 
   const loadUserData = async (userId: string, forUser: UserProfile | null) => {
     // Parallel data fetching
@@ -184,19 +181,27 @@ const App: React.FC = () => {
       databaseService.getSubmittedKeys(userId)
     ]);
 
-    setHistory(fetchedHistory);
-    setMasterCvHtml(fetchedMaster || `<p>${SAMPLE_CV.split('\n').join('</p><p>')}</p>`);
-    setSubmittedKeys(fetchedSubmitted);
-    setApplicationProfile(fetchedAppProfile || makeDefaultProfile(forUser));
-    
-    // Initialize workspace with master CV if available
-    if (fetchedMaster && !cvHtml) {
-        setCvHtml(fetchedMaster);
-    } else if (!cvHtml && !fetchedMaster) {
-        setCvHtml(`<p>${SAMPLE_CV.split('\n').join('</p><p>')}</p>`);
-    } else if (!cvHtml && fetchedMaster) {
-        setCvHtml(fetchedMaster);
+    // One-shot migration: if saved master is the legacy placeholder (TechGrow / CreativeAgencies sample),
+    // overwrite it with the real Jay resume. Lets the new default land without a manual reset.
+    const isLegacySample = !!fetchedMaster && /TechGrow|CreativeAgencies|Growth Marketing Manager/i.test(fetchedMaster);
+    const effectiveMaster = !fetchedMaster || isLegacySample ? SAMPLE_CV : fetchedMaster;
+    if (isLegacySample) {
+      try { await databaseService.saveMasterCV(userId, SAMPLE_CV); } catch { /* localStorage fallback handles it */ }
     }
+
+    setHistory(fetchedHistory);
+    setMasterCvHtml(effectiveMaster);
+    setSubmittedKeys(fetchedSubmitted);
+    // If saved profile is empty (no name/email), seed it with Jay's real data.
+    const isEmptyProfile = !fetchedAppProfile || (!fetchedAppProfile.firstName && !fetchedAppProfile.email);
+    const effectiveProfile = isEmptyProfile ? makeDefaultProfile(forUser) : fetchedAppProfile;
+    if (isEmptyProfile) {
+      try { await databaseService.saveApplicationProfile(userId, effectiveProfile); } catch { /* ok */ }
+    }
+    setApplicationProfile(effectiveProfile);
+
+    // Initialize workspace with the same effective master CV.
+    if (!cvHtml) setCvHtml(effectiveMaster);
   };
 
   // --- AUTH HANDLERS ---
@@ -646,6 +651,39 @@ const App: React.FC = () => {
     }));
   };
 
+  const toggleSuggestion = (id: string, applied?: boolean) => {
+    setState(s => ({
+      ...s,
+      suggestions: s.suggestions.map(sg =>
+        sg.id === id ? { ...sg, applied: applied ?? !sg.applied } : sg
+      ),
+    }));
+  };
+
+  const setAllSuggestions = (applied: boolean) => {
+    setState(s => ({
+      ...s,
+      suggestions: s.suggestions.map(sg => ({ ...sg, applied })),
+    }));
+  };
+
+  // Save the tailored CV to the master, set it as the active workspace CV (used by
+  // AutoApplyPanel + server PDF render), and jump to the Input tab where the auto-apply lives.
+  const handleUseForAutoApply = async () => {
+    const finalHtml = finalPreviewHtml || cvHtml;
+    if (!finalHtml) {
+      showToast('No CV content to save yet.');
+      return;
+    }
+    await updateMasterCV(finalHtml);
+    setCvHtml(finalHtml);
+    setActiveTab('input');
+    showToast('Saved. Paste a job URL below to auto-apply with this CV.');
+    setTimeout(() => {
+      document.getElementById('auto-apply-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  };
+
   const compileFinalHtml = (sections: CVSection[], suggestions: Suggestion[]) => {
     if (sections.length > 0) {
       return sections.map(sec => {
@@ -974,6 +1012,7 @@ const App: React.FC = () => {
                     </button>
                   </div>
 
+                  <div id="auto-apply-anchor" />
                   <AutoApplyPanel
                     profile={applicationProfile}
                     cvHtml={finalPreviewHtml || cvHtml}
@@ -1099,20 +1138,52 @@ const App: React.FC = () => {
                                        <div className="p-8">
                                           {sectionSugs.length > 0 ? (
                                             <div className="space-y-12">
+                                               <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400 -mt-4">
+                                                 <span>{sectionSugs.filter(x => x.applied).length} / {sectionSugs.length} accepted in this section</span>
+                                                 <div className="flex gap-3">
+                                                   <button
+                                                     onClick={() => sectionSugs.forEach(sg => toggleSuggestion(sg.id, true))}
+                                                     className="text-green-700 dark:text-green-400 hover:underline"
+                                                   >Accept all</button>
+                                                   <button
+                                                     onClick={() => sectionSugs.forEach(sg => toggleSuggestion(sg.id, false))}
+                                                     className="text-gray-500 dark:text-gray-400 hover:underline"
+                                                   >Reject all</button>
+                                                 </div>
+                                               </div>
                                                {sectionSugs.map(s => (
-                                                 <div key={s.id} className="border border-gray-100 rounded-sm shadow-sm">
-                                                    <div className="bg-gray-50/50 dark:bg-[#141414]/50 p-6 space-y-4">
+                                                 <div key={s.id} className={`border rounded-sm shadow-sm transition-all ${s.applied ? 'border-green-300 dark:border-green-800' : 'border-gray-200 dark:border-[#333333] opacity-60'}`}>
+                                                    <div className={`p-6 space-y-4 ${s.applied ? 'bg-green-50/40 dark:bg-green-900/10' : 'bg-gray-50/50 dark:bg-[#141414]/50'}`}>
+                                                       <div className="flex items-center justify-between gap-3">
+                                                         <span className={`text-[10px] font-bold uppercase tracking-widest ${s.applied ? 'text-green-700 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                                                           {s.applied ? 'Accepted — will appear in final CV' : 'Rejected — original kept'}
+                                                         </span>
+                                                         <div className="flex gap-2">
+                                                           <button
+                                                             onClick={() => toggleSuggestion(s.id, true)}
+                                                             className={`flex items-center gap-1 px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition-colors ${s.applied ? 'bg-green-600 text-white border-green-600' : 'bg-white dark:bg-[#141414] text-gray-600 dark:text-gray-300 border-gray-200 dark:border-[#333333] hover:border-green-500'}`}
+                                                           >
+                                                             <Check size={12} /> Accept
+                                                           </button>
+                                                           <button
+                                                             onClick={() => toggleSuggestion(s.id, false)}
+                                                             className={`flex items-center gap-1 px-3 py-1 text-[10px] font-bold uppercase tracking-widest border transition-colors ${!s.applied ? 'bg-gray-800 text-white border-gray-800' : 'bg-white dark:bg-[#141414] text-gray-600 dark:text-gray-300 border-gray-200 dark:border-[#333333] hover:border-gray-500'}`}
+                                                           >
+                                                             <X size={12} /> Reject
+                                                           </button>
+                                                         </div>
+                                                       </div>
                                                        <div className="diff-removed text-sm opacity-60">
                                                           <div dangerouslySetInnerHTML={{ __html: s.originalHtml }} />
                                                        </div>
                                                        <div className="relative group">
                                                           <div className="absolute -top-3 left-0 bg-green-100 text-green-800 text-[9px] px-2 py-0.5 font-bold uppercase tracking-widest rounded-r">Editable</div>
-                                                          <div 
+                                                          <div
                                                             className="diff-added text-sm outline-none p-3 -mx-3 rounded transition-all cursor-text focus:bg-white dark:focus:bg-[#1F1F1F] focus:ring-2 focus:ring-green-500/20"
                                                             contentEditable
                                                             suppressContentEditableWarning
                                                             onBlur={(e) => updateSuggestionText(s.id, e.currentTarget.innerHTML)}
-                                                            dangerouslySetInnerHTML={{ __html: s.suggestedHtml }} 
+                                                            dangerouslySetInnerHTML={{ __html: s.suggestedHtml }}
                                                           />
                                                        </div>
                                                     </div>
@@ -1329,19 +1400,22 @@ const App: React.FC = () => {
                   <div className="flex gap-4">
                       <button onClick={() => setActiveTab('analyze')} className="px-6 py-2 uber-button-secondary text-[10px] font-bold uppercase tracking-widest">BACK</button>
                       <button onClick={handleDownloadDOCX} className="uber-button-secondary bg-blue-50 text-blue-600 border-blue-200 text-[10px] font-bold tracking-widest uppercase hover:bg-blue-100">DOWNLOAD DOCX</button>
-                      <button onClick={handleDownloadPDF} className="uber-button-primary text-[10px] font-bold tracking-widest uppercase">DOWNLOAD PDF</button>
+                      <button onClick={handleDownloadPDF} className="uber-button-secondary text-[10px] font-bold tracking-widest uppercase">DOWNLOAD PDF</button>
+                      <button onClick={handleUseForAutoApply} className="uber-button-primary text-[10px] font-bold tracking-widest uppercase flex items-center gap-2">
+                        <Sparkles size={12} /> SAVE & USE TO APPLY
+                      </button>
                   </div>
                 </div>
 
-                <div className="flex-1 w-full overflow-hidden flex flex-col relative">
-                  <div className="flex-1 overflow-y-auto p-8">
-                    <RichEditor 
-                        content={finalPreviewHtml} 
-                        onChange={setFinalPreviewHtml} 
-                        className="h-full w-full min-h-[1000px]"
+                <div className="flex-1 w-full overflow-y-auto flex flex-col relative">
+                  <div className="px-4 py-8">
+                    <RichEditor
+                        content={finalPreviewHtml}
+                        onChange={setFinalPreviewHtml}
+                        className="h-auto w-full"
                         viewMode="page"
                     />
-                    
+
                     {/* Messages in Preview */}
                     <div className="max-w-[210mm] mx-auto mt-12 mb-24 grid grid-cols-1 md:grid-cols-2 gap-8">
                       {/* LinkedIn Message */}

@@ -174,26 +174,35 @@
 
         /* CV Content & Editor Styles - Enforcing Standard Formatting */
         .cv-content, .ProseMirror {
-            color: #000000 !important;
+            color: #000000;
             font-size: 11pt;
             line-height: 1.4;
             font-family: 'Calibri', 'Arial', sans-serif;
             text-align: left;
         }
-        
+
+        /* Dark mode: editor text needs to be readable on dark backgrounds.
+           The .a4-page rule below re-forces black inside the paper preview so the PDF still looks right. */
+        html.dark .cv-content, html.dark .ProseMirror {
+            color: #E8E8E8;
+        }
+
         .ProseMirror {
             min-height: 100%;
             outline: none;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
         }
 
         /* STRICT FORMATTING ENFORCEMENT */
-        .cv-content strong, .cv-content b, 
+        .cv-content strong, .cv-content b,
         .ProseMirror strong, .ProseMirror b {
             font-weight: 700 !important;
-            color: #000;
+            color: inherit;
         }
 
-        .cv-content em, .cv-content i, 
+        .cv-content em, .cv-content i,
         .ProseMirror em, .ProseMirror i {
             font-style: italic !important;
         }
@@ -205,6 +214,9 @@
         .cv-content a, .ProseMirror a {
             color: #0563C1;
             text-decoration: underline;
+        }
+        html.dark .cv-content a, html.dark .ProseMirror a {
+            color: #6BA4FF;
         }
 
         .cv-content p, .ProseMirror p { 
@@ -240,7 +252,7 @@
             font-weight: 700 !important;
             margin-top: 1.5rem;
             margin-bottom: 0.5rem;
-            border-bottom: 1px solid #000;
+            border-bottom: 1px solid currentColor;
             padding-bottom: 4px;
             line-height: 1.2;
         }
@@ -263,16 +275,33 @@
         .a4-page {
             width: 210mm;
             min-height: 297mm;
+            max-width: 100%;
             padding: 20mm;
             margin: 0 auto;
             background: white;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
             position: relative;
+            box-sizing: border-box;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+        /* Narrow viewports: let the page scale down rather than push horizontal overflow. */
+        @media (max-width: 900px) {
+            .a4-page { width: 100%; padding: 12mm; }
         }
         
-        html.dark .a4-page {
+        /* Paper preview always shows as white paper with black ink, even in dark mode,
+           so the on-screen view matches the printed/PDF output. */
+        html.dark .a4-page,
+        html.dark .a4-page .cv-content,
+        html.dark .a4-page .ProseMirror,
+        html.dark .a4-page .ProseMirror * {
             background-color: #FFFFFF !important;
             color: #000000 !important;
+        }
+        html.dark .a4-page .ProseMirror a,
+        html.dark .a4-page .cv-content a {
+            color: #0563C1 !important;
         }
 
         @media print {

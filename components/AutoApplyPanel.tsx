@@ -165,7 +165,7 @@ const AutoApplyPanel: React.FC<Props> = ({
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Sparkles size={16} className="text-blue-600" />
-            <h2 className="text-sm font-bold tracking-tight dark:text-white uppercase">Auto-Apply (Greenhouse)</h2>
+            <h2 className="text-sm font-bold tracking-tight dark:text-white uppercase">Auto-Apply (Greenhouse · Ashby · Lever)</h2>
           </div>
           <label className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-gray-600 dark:text-gray-300 cursor-pointer">
             <input
@@ -193,7 +193,7 @@ const AutoApplyPanel: React.FC<Props> = ({
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://job-boards.greenhouse.io/company/jobs/123…  or  https://company.com/jobs?gh_jid=…"
+            placeholder="Greenhouse · Ashby (jobs.ashbyhq.com/…) · Lever (jobs.lever.co/…)"
             className="flex-1 uber-input text-xs dark:bg-[#0A0A0A] dark:text-white"
           />
           <button
