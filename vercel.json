@@ -6,7 +6,6 @@
   "functions": {
     "api/index.ts": {
       "maxDuration": 300,
-      "memory": 3009,
       "includeFiles": "{voice/**,node_modules/@sparticuz/chromium/bin/**}"
     }
   },

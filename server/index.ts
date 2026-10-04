@@ -1,4 +1,4 @@
-import { createApp, FORCE_DRY_RUN, HEADLESS } from './app';
+import { createApp, FORCE_DRY_RUN, HEADLESS } from './app.js';
 
 // Local / self-hosted entrypoint. On Vercel the same app is mounted as a
 // Function by api/index.ts instead, and nothing here runs.

@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, GenerateContentParameters } from "@google/genai";
-import { CVSection, Suggestion, RewriteMode } from "../types";
+import { CVSection, Suggestion, RewriteMode } from "../types.js";
 
 // Lazy singleton: the key is read at request time (Vercel injects env at runtime, not import time)
 // and a missing key surfaces as a clear API error instead of crashing the whole function on import.

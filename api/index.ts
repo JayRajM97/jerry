@@ -1,4 +1,4 @@
-import { createApp } from '../server/app';
+import { createApp } from '../server/app.js';
 
 // Vercel Function entry. An Express app is already a (req, res) handler, so it can
 // be exported directly. vercel.json rewrites every /api/* path here, and Express

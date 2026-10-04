@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { readFileSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import type { ApplicationProfile } from '../types';
+import type { ApplicationProfile } from '../types.js';
 
 // Voice/style guide is a repo asset (voice/style.md). Read once; restart picks up edits.
 // Stripped of header lines so only the real style content reaches the prompt.

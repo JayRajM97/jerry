@@ -1,10 +1,10 @@
 import type { Browser, Page } from 'playwright-core';
-import { launchBrowser, isServerless } from './browser';
+import { launchBrowser, isServerless } from './browser.js';
 import { mkdirSync, mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve as resolvePath } from 'path';
-import type { ApplicationProfile, ApplyResult } from '../types';
-import { generateApplicationAnswers } from './gemini';
+import type { ApplicationProfile, ApplyResult } from '../types.js';
+import { generateApplicationAnswers } from './gemini.js';
 
 // --- Greenhouse Job Board API types (subset we use) ---
 interface GhFieldValue { label: string; value: string | number; }

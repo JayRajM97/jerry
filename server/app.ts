@@ -1,14 +1,15 @@
-import './env';
+import './env.js';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
-import { resolveJob, buildFieldPlan, runApply } from './greenhouse';
-import { isAshbyUrl, resolveAshbyJob, runAshbyApply } from './ashby';
-import { isLeverUrl, resolveLeverJob, runLeverApply } from './lever';
-import * as ai from './aiCore';
-import { voiceStyleLoaded } from './gemini';
-import type { ApplicationProfile } from '../types';
+import { resolveJob, buildFieldPlan, runApply } from './greenhouse.js';
+import { isAshbyUrl, resolveAshbyJob, runAshbyApply } from './ashby.js';
+import { isLeverUrl, resolveLeverJob, runLeverApply } from './lever.js';
+import { launchBrowser } from './browser.js';
+import * as ai from './aiCore.js';
+import { voiceStyleLoaded } from './gemini.js';
+import type { ApplicationProfile } from '../types.js';
 
 export const FORCE_DRY_RUN = ['true', '1'].includes((process.env.APPLY_DRY_RUN || '').toLowerCase());
 // Serverless has no display, so headless is forced there regardless of the env var.
@@ -41,6 +42,34 @@ export function createApp() {
       geminiConfigured: !!process.env.GEMINI_API_KEY,
       voiceStyleLoaded,
     });
+  });
+
+  // Browser smoke test. Chromium is the most environment-sensitive part of a deploy
+  // (it is loaded from disk, not bundled), so this proves it can actually launch
+  // without needing a Gemini key or a live job posting.
+  app.get('/api/health/browser', async (_req, res) => {
+    const started = Date.now();
+    let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined;
+    try {
+      browser = await launchBrowser({ headless: true });
+      const page = await browser.newPage();
+      await page.setContent('<h1>ok</h1>');
+      const heading = await page.textContent('h1');
+      res.json({
+        ok: heading === 'ok',
+        chromiumVersion: browser.version(),
+        serverless: !!process.env.VERCEL,
+        launchMs: Date.now() - started,
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        ok: false,
+        error: err?.message || 'Browser launch failed',
+        launchMs: Date.now() - started,
+      });
+    } finally {
+      await browser?.close().catch(() => {});
+    }
   });
 
   // Server-side Gemini. Keeps GEMINI_API_KEY out of the client bundle.
