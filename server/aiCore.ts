@@ -1,26 +1,15 @@
 
-import { GoogleGenAI, Type, GenerateContentParameters } from "@google/genai";
+import { Type } from "@google/genai";
 import { CVSection, Suggestion, RewriteMode } from "../types.js";
-
-// Lazy singleton: the key is read at request time (Vercel injects env at runtime, not import time)
-// and a missing key surfaces as a clear API error instead of crashing the whole function on import.
-let _ai: GoogleGenAI | null = null;
-function getAi(): GoogleGenAI {
-  if (!_ai) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
-    _ai = new GoogleGenAI({ apiKey });
-  }
-  return _ai;
-}
+import { generateText, type GenerateParams } from "./llm.js";
 
 /**
- * Helper to call Gemini with exponential backoff retry logic.
- * Specifically targets 503 and 429 errors.
+ * Call the configured LLM (OpenAI or Gemini — see server/llm.ts) with exponential
+ * backoff on 429/503. The params stay in Gemini's shape; llm.ts translates.
  */
-async function callGeminiWithRetry(params: GenerateContentParameters, retries = 5, delay = 2000): Promise<any> {
+async function callGeminiWithRetry(params: GenerateParams, retries = 5, delay = 2000): Promise<{ text: string }> {
   try {
-    const response = await getAi().models.generateContent(params);
+    const response = await generateText(params);
     return response;
   } catch (error: any) {
     // Detect various forms of rate limiting or temporary unavailability
@@ -36,7 +25,7 @@ async function callGeminiWithRetry(params: GenerateContentParameters, retries = 
       errorMessage.includes("Overloaded");
 
     if (isRetryable && retries > 0) {
-      console.warn(`Gemini API rate limit hit. Retrying in ${delay}ms... (Retries left: ${retries})`);
+      console.warn(`LLM rate limit hit. Retrying in ${delay}ms... (Retries left: ${retries})`);
       await new Promise(resolve => setTimeout(resolve, delay));
       // Exponential backoff with some jitter to avoid thundering herd
       const nextDelay = delay * 2 + Math.random() * 500;

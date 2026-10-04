@@ -66,12 +66,25 @@ Free tier spins down after 15 min of inactivity; the first request after sleep t
 
 | Var | Default | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | — | Required. Gemini API key. |
+| `OPENAI_API_KEY` | — | One of the two keys is required. OpenAI is preferred when both are set. |
+| `OPENAI_MODEL` | `gpt-5-mini` | Any chat model with structured outputs; `gpt-5-nano` is cheapest. |
+| `GEMINI_API_KEY` | — | Alternative provider. |
+| `LLM_PROVIDER` | auto | Force `openai` or `gemini`. |
 | `HEADLESS` | `true` | Set `false` locally to see the browser work. |
 | `RECORD_VIDEO` | unset | `1`/`true` to record `.webm` per apply run. |
 | `APPLY_DRY_RUN` | `false` | `true` = kill-switch, never actually submits. |
 | `NODE_ENV` | — | Set to `production` on Render (handled in Dockerfile). |
 | `PORT` | `8787` (dev) / `10000` (prod) | Render injects this. |
+
+## AI provider
+
+All prompts are provider-neutral and live in `server/aiCore.ts` / `server/gemini.ts`.
+`server/llm.ts` picks the provider from the environment and translates the Gemini-style
+JSON schemas each call declares into OpenAI strict structured outputs, so the same
+prompt and schema run on either. `GET /api/health` reports `llm.provider` and `llm.model`.
+
+Rough cost per application (≈20K input + 8K output tokens across the 6–7 calls):
+gpt-5-nano ≈ $0.004, gpt-4o-mini ≈ $0.008, gpt-5-mini ≈ $0.02.
 
 ## Resume format, one page, and the PDF
 

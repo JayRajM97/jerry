@@ -1,4 +1,5 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
+import { generateText } from './llm.js';
 import { readFileSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -32,21 +33,11 @@ const VOICE_STYLE = loadVoiceStyle();
 // Exposed on /api/health so a deploy can be checked for the voice guide actually shipping.
 export const voiceStyleLoaded = VOICE_STYLE.length > 0;
 
-// Lazy so a missing key fails the request with a clear message rather than the import.
-let _ai: GoogleGenAI | null = null;
-function getAi(): GoogleGenAI {
-  if (!_ai) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
-    _ai = new GoogleGenAI({ apiKey });
-  }
-  return _ai;
-}
-
-// Retry transient 429/503 (model overloaded) with exponential backoff.
-async function generateWithRetry(params: any, retries = 4, delay = 2000): Promise<any> {
+// Retry transient 429/503 (model overloaded) with exponential backoff. Provider is
+// chosen in server/llm.ts; params stay in Gemini's shape and are translated there.
+async function generateWithRetry(params: any, retries = 4, delay = 2000): Promise<{ text: string }> {
   try {
-    return await getAi().models.generateContent(params);
+    return await generateText(params);
   } catch (error: any) {
     const code = error?.status || error?.error?.code || error?.statusCode;
     const msg = error?.message || error?.error?.message || JSON.stringify(error);

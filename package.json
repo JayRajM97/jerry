@@ -15,7 +15,8 @@
     "test:apply": "tsx scripts/test/apply-suggestions.test.ts",
     "test:docx": "tsx scripts/test/docx-roundtrip.test.ts",
     "test:export": "tsx scripts/test/export-pdf.test.ts",
-    "test": "npm run test:apply && npm run test:import && npm run test:docx"
+    "test": "npm run test:llm && npm run test:apply && npm run test:import && npm run test:docx",
+    "test:llm": "tsx scripts/test/llm-provider.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.40.0",

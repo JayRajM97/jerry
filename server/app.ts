@@ -11,6 +11,7 @@ import { renderResumePdf, renderResumePreviewPng } from './resumePdf.js';
 import { sanitizeFilenamePart } from '../shared/resumeFilename.js';
 import * as ai from './aiCore.js';
 import { voiceStyleLoaded } from './gemini.js';
+import { llmStatus, isLlmConfigured, LLM_NOT_CONFIGURED } from './llm.js';
 import type { ApplicationProfile } from '../types.js';
 
 export const FORCE_DRY_RUN = ['true', '1'].includes((process.env.APPLY_DRY_RUN || '').toLowerCase());
@@ -42,6 +43,7 @@ export function createApp() {
       headless: HEADLESS,
       serverless: !!process.env.VERCEL,
       geminiConfigured: !!process.env.GEMINI_API_KEY,
+      llm: llmStatus(),
       voiceStyleLoaded,
     });
   });
@@ -81,8 +83,8 @@ export function createApp() {
       res.status(404).json({ error: `Unknown AI function: ${req.params.fn}` });
       return;
     }
-    if (!process.env.GEMINI_API_KEY) {
-      res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
+    if (!isLlmConfigured()) {
+      res.status(500).json({ error: LLM_NOT_CONFIGURED });
       return;
     }
     try {
