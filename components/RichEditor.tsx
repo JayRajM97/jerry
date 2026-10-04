@@ -12,9 +12,11 @@ interface Props {
   className?: string;
   placeholder?: string;
   viewMode?: 'page' | 'fluid';
+  /** --resume-scale for page mode; the fit measurement supplies it so the preview matches the PDF. */
+  pageScale?: number;
 }
 
-const RichEditor: React.FC<Props> = ({ content, onChange, className, placeholder, viewMode = 'page' }) => {
+const RichEditor: React.FC<Props> = ({ content, onChange, className, placeholder, viewMode = 'page', pageScale = 1 }) => {
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -30,9 +32,11 @@ const RichEditor: React.FC<Props> = ({ content, onChange, className, placeholder
     },
     editorProps: {
         attributes: {
-            class: (viewMode === 'page' 
-              ? 'prose prose-sm focus:outline-none w-full min-h-full break-words max-w-none dark:prose-invert' 
-              : 'prose prose-sm sm:prose-base lg:prose-lg xl:prose-2xl focus:outline-none w-full min-h-full break-words dark:prose-invert'),
+            // resume-root carries the shared resume typography (shared/resumeTheme.ts)
+            // in both modes, so the editor, the preview and the PDF all lay out alike.
+            class: (viewMode === 'page'
+              ? 'resume-root focus:outline-none w-full min-h-full break-words max-w-none'
+              : 'resume-root focus:outline-none w-full min-h-full break-words'),
         },
     },
   });
@@ -52,7 +56,7 @@ const RichEditor: React.FC<Props> = ({ content, onChange, className, placeholder
   if (!editor) return null;
 
   const editorContainerClass = viewMode === 'page'
-    ? "a4-page bg-white dark:bg-[#141414] dark:text-white shadow-lg min-h-[297mm] w-[210mm] p-[20mm] cursor-text print:shadow-none print:w-full print:h-full print:p-[15mm]"
+    ? "resume-page a4-page bg-white dark:bg-[#141414] dark:text-white shadow-lg min-h-[297mm] w-[210mm] p-[20mm] cursor-text print:shadow-none print:w-full print:h-full print:p-[15mm]"
     : "w-full min-h-full bg-white dark:bg-[#141414] dark:text-white p-6 sm:p-8 cursor-text max-w-none";
 
   const wrapperClass = viewMode === 'page'
@@ -139,7 +143,11 @@ const RichEditor: React.FC<Props> = ({ content, onChange, className, placeholder
       
       {/* Scrollable Content Area */}
       <div className={wrapperClass}>
-          <div className={editorContainerClass} onClick={() => editor.chain().focus().run()}>
+          <div
+            className={editorContainerClass}
+            style={viewMode === 'page' ? ({ '--resume-scale': String(pageScale) } as React.CSSProperties) : undefined}
+            onClick={() => editor.chain().focus().run()}
+          >
              <EditorContent editor={editor} />
           </div>
       </div>

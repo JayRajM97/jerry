@@ -7,6 +7,8 @@ import { resolveJob, buildFieldPlan, runApply } from './greenhouse.js';
 import { isAshbyUrl, resolveAshbyJob, runAshbyApply } from './ashby.js';
 import { isLeverUrl, resolveLeverJob, runLeverApply } from './lever.js';
 import { launchBrowser } from './browser.js';
+import { renderResumePdf, renderResumePreviewPng } from './resumePdf.js';
+import { sanitizeFilenamePart } from '../shared/resumeFilename.js';
 import * as ai from './aiCore.js';
 import { voiceStyleLoaded } from './gemini.js';
 import type { ApplicationProfile } from '../types.js';
@@ -89,6 +91,53 @@ export function createApp() {
       res.json({ result });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || `${req.params.fn} failed` });
+    }
+  });
+
+  // Vector PDF export of the resume, shrunk to one page when needed. The browser
+  // sends the HTML it is displaying; the server lays it out with the same
+  // stylesheet and reports how it fitted in response headers.
+  app.post('/api/export/pdf', async (req, res) => {
+    const { html, filename } = (req.body || {}) as { html?: unknown; filename?: unknown };
+    if (typeof html !== 'string' || !html.trim()) {
+      res.status(400).json({ error: 'html is required' });
+      return;
+    }
+    // The client builds the name; only make sure nothing path-like gets through.
+    const requested = typeof filename === 'string' ? filename : '';
+    const base = requested.replace(/\.pdf$/i, '').split(/[\\/]/).pop() || '';
+    const safeName = `${sanitizeFilenamePart(base) || 'Resume'}.pdf`;
+    try {
+      const out = await renderResumePdf(html);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+      res.setHeader('X-Resume-Pages', String(out.pages));
+      res.setHeader('X-Resume-Scale', out.scale.toFixed(3));
+      res.setHeader('X-Resume-Fits', out.fits ? 'true' : 'false');
+      res.setHeader('X-Resume-Fill', out.fill.toFixed(3));
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Resume-Pages, X-Resume-Scale, X-Resume-Fits, X-Resume-Fill');
+      res.send(out.pdf);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'PDF export failed' });
+    }
+  });
+
+  // PNG of the laid-out page (same engine and scale as the PDF).
+  app.post('/api/export/preview', async (req, res) => {
+    const { html } = (req.body || {}) as { html?: unknown };
+    if (typeof html !== 'string' || !html.trim()) {
+      res.status(400).json({ error: 'html is required' });
+      return;
+    }
+    try {
+      const out = await renderResumePreviewPng(html);
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('X-Resume-Pages', String(out.pages));
+      res.setHeader('X-Resume-Scale', out.scale.toFixed(3));
+      res.setHeader('X-Resume-Fits', out.fits ? 'true' : 'false');
+      res.send(out.png);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Preview render failed' });
     }
   });
 

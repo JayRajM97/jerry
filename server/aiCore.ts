@@ -63,11 +63,17 @@ export async function analyzeResume(
     
     TASK:
     1. Parse the CV into logical sections based on the HTML structure (e.g., headings define sections).
-    2. CLEANUP & FORMATTING FIXES (CRITICAL):
-       - The input HTML is parsed from a PDF and may have broken line breaks (sentences split across lines) and text-based bullets (e.g., "●", "•", "-").
-       - MERGE broken lines into coherent paragraphs. Do not leave hard breaks in the middle of sentences.
-       - CONVERT text-based bullet points into proper HTML \`<ul><li>...</li></ul>\` structures.
-       - Ensure the final output is clean, semantic HTML.
+    2. FORMAT PRESERVATION (NON-NEGOTIABLE):
+       - The CV HTML is the candidate's formatted document. Your suggestions are applied by replacing
+         individual elements in place; everything you do not touch stays exactly as it is.
+       - Each suggestion's "originalHtml" MUST be an exact, verbatim copy of ONE existing block element from
+         the CV HTML (a single <li>, <p>, or heading), including its inner tags, copied character for character.
+       - "suggestedHtml" MUST be the same element type as originalHtml and MUST keep every inline tag the
+         original has: every <a href="..."> (with the same href), <strong>, <em>, <u>. Never drop a hyperlink.
+       - Do NOT merge, split, reorder, add or remove sections. Do NOT touch the header block (name and
+         contact line). Do NOT change heading levels.
+       - Propose 3 to 8 focused, independently acceptable changes. Quality over quantity: each one should
+         move the ATS match for this JD.
     3. Propose improvements to the CV to better match the JD while STRICTLY preserving facts (no new skills, dates, companies, or metrics).
        - EXPLICITLY add evidence for the missing skills and weak signals mentioned above. For example, if "QA coordination" is missing, add terms like "QA/UAT/bug triage/acceptance criteria" to relevant bullets.
     4. For the "${mode}" mode: 
@@ -341,6 +347,8 @@ async function parseJD(jdText: string) {
 
     4) Output format must clearly separate required_skills, preferred_skills, required_tools, preferred_tools, and soft_traits.
 
+    5) company: the hiring company's name as written in the JD (e.g. "Stripe"), or an empty string if it is not stated.
+
     JD:
     ${jdText}
   `;
@@ -361,7 +369,8 @@ async function parseJD(jdText: string) {
           preferred_tools: { type: Type.ARRAY, items: { type: Type.STRING } },
           responsibilities: { type: Type.ARRAY, items: { type: Type.STRING } },
           minimum_years_experience: { type: Type.NUMBER },
-          domain: { type: Type.STRING }
+          domain: { type: Type.STRING },
+          company: { type: Type.STRING }
         },
         required: ["job_title", "title_variants", "required_hard_skills", "soft_traits", "preferred_skills", "required_tools", "preferred_tools", "responsibilities", "minimum_years_experience"]
       }

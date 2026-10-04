@@ -8,7 +8,7 @@ interface Props {
   cvHtml: string;
   jdText: string;
   submittedKeys: string[];
-  onJobFetched: (jdText: string) => void;
+  onJobFetched: (jdText: string, company?: string) => void;
   onResult: (result: ApplyResult) => void;
   onEditProfile: () => void;
 }
@@ -75,7 +75,7 @@ const AutoApplyPanel: React.FC<Props> = ({
     try {
       advanceTo('fetch');
       const preview = await fetchJobPreview(url);
-      onJobFetched(preview.jdText);
+      onJobFetched(preview.jdText, preview.company);
       setStepDetail(prev => ({ ...prev, fetch: `${preview.jobTitle} @ ${preview.company} — ${preview.questionCount} questions` }));
 
       const key = `${preview.boardToken}/${preview.jobId}`;

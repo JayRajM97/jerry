@@ -42,7 +42,7 @@ Notes on the Vercel setup:
 
 - `maxDuration` is 300s and `memory` 3009MB for `api/index.ts` — Chromium needs the
   headroom, and a full apply run can take a couple of minutes.
-- `includeFiles` ships `voice/style.md` and the `@sparticuz/chromium` binaries, which are
+- `includeFiles` ships `voice/style.md`, the `server/fonts/` Open Sans files and the `@sparticuz/chromium` binaries, which are
   loaded by path rather than `import` and so would otherwise be tree-shaken out of the
   bundle. `GET /api/health` reports `voiceStyleLoaded` so you can confirm it shipped.
 - Video recording is force-disabled in serverless (read-only filesystem).
@@ -73,6 +73,49 @@ Free tier spins down after 15 min of inactivity; the first request after sleep t
 | `NODE_ENV` | — | Set to `production` on Render (handled in Dockerfile). |
 | `PORT` | `8787` (dev) / `10000` (prod) | Render injects this. |
 
+## Resume format, one page, and the PDF
+
+The resume is one HTML document styled by **one stylesheet**, `shared/resumeTheme.ts`,
+which the editor, the on-screen preview, the client-side page-fit meter, the PDF export
+and the auto-apply upload all use. What you see on the page is laid out with the same
+rules as the file.
+
+- **Import** (`utils/importResume.ts`): `.pdf` is read with pdf.js including the link
+  annotations, so hyperlinks survive; fonts are resolved to real names (Calibri-Bold,
+  Calibri-Italic…) so bold/italic runs are kept; headings, role lines and bullets are
+  recovered from size, weight and layout, and wrapped lines are re-joined. `.docx` goes
+  through mammoth with Word's Title/Heading styles mapped onto the resume hierarchy.
+- **Suggestions never rewrite your document** (`utils/applySuggestions.ts`). Each accepted
+  change replaces one matched element in place; everything else stays byte-identical.
+  A suggestion whose original text cannot be located is flagged, not guessed.
+- **One page** is enforced by scaling: every size in the stylesheet derives from
+  `--resume-scale`, and both the preview (`utils/pageFit.ts`) and the server search for
+  the largest scale (down to 80%) at which the content fits A4. The badge in Analyze and
+  Preview shows the result live; if it does not fit even at 80%, it says how many lines
+  to cut rather than clipping.
+- **PDF export** is `POST /api/export/pdf` (`server/resumePdf.ts`): a real vector PDF from
+  Chromium with selectable text, working links and Open Sans embedded. Response headers
+  `X-Resume-Pages`, `X-Resume-Scale`, `X-Resume-Fits` report how it fitted; the page count
+  is read back from the produced file.
+- **DOCX export** (`utils/htmlToDocx.ts`) writes real Word paragraphs with Word's own
+  Title/Heading styles, bullet numbering and hyperlinks. The previous html-docx-js output
+  embedded the HTML as an altChunk, which Word displays but ATS parsers read as empty.
+- **File name** is `First-Last-com-Company-YYYY-MM-DD.pdf` (`shared/resumeFilename.ts`),
+  the same for the DOCX download and for the resume the auto-apply agent uploads. The
+  company fills from the job URL fetch or the JD parse and can be edited above the
+  Download button.
+
+### Tests
+
+```bash
+npm test             # suggestion application (jsdom), PDF import of the bundled resume, DOCX round trip
+npm run test:export  # end-to-end PDF export against a deployment (BASE=https://… to override)
+```
+
+`npm run test:export` hits the real serverless Chromium: it checks page count, A4 size,
+margins, text layer, hyperlinks, the fit headers and the file name. For a protected preview
+deployment set `VIA_VERCEL_CURL=<team-slug>` and it routes requests through `vercel curl`.
+
 ## Architecture
 
 | Piece | Where it runs |
@@ -81,6 +124,7 @@ Free tier spins down after 15 min of inactivity; the first request after sleep t
 | `/api/*` | One Express app (`server/app.ts`) mounted as a Vercel Function via `api/index.ts` |
 | Gemini calls | Server-side only (`server/aiCore.ts`, `server/gemini.ts`) |
 | Playwright apply runs | Same Function; Chromium comes from `@sparticuz/chromium` in serverless, local Playwright in dev |
+| PDF export | Same Chromium, `server/resumePdf.ts`; fonts in `server/fonts/` (Open Sans, OFL) |
 
 `server/browser.ts` picks the right Chromium. Both of its imports are dynamic, so the
 ~64MB Chromium pack is only loaded by the routes that actually drive a browser.

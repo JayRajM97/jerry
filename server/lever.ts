@@ -1,10 +1,11 @@
 import type { Browser, Page } from 'playwright-core';
 import { launchBrowser, isServerless } from './browser.js';
-import { mkdirSync, mkdtempSync } from 'fs';
-import { tmpdir } from 'os';
-import { join, resolve as resolvePath } from 'path';
+import { mkdirSync } from 'fs';
+import { resolve as resolvePath } from 'path';
 import type { ApplicationProfile, ApplyResult } from '../types.js';
 import { generateApplicationAnswers } from './gemini.js';
+import { renderResumePdfToFile } from './resumePdf.js';
+import { buildResumeBasename } from '../shared/resumeFilename.js';
 
 // ─── URL parsing ──────────────────────────────────────────────────────────
 
@@ -230,24 +231,6 @@ export async function buildLeverFieldPlan(
   return { fields: planned, blockers };
 }
 
-// ─── Resume PDF render ────────────────────────────────────────────────────
-
-const RESUME_CSS = `body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000;line-height:1.3;padding:20mm;}
-h1{font-size:18pt;font-weight:bold;border-bottom:1px solid #000;margin:0 0 6pt;}
-h2{font-size:14pt;font-weight:bold;margin:12pt 0 6pt;text-transform:uppercase;}
-p{margin:0 0 6pt;}ul{margin:0 0 6pt 24pt;}li{margin-bottom:2pt;}
-a{color:#0563C1;text-decoration:underline;}strong,b{font-weight:bold;}em,i{font-style:italic;}`;
-
-async function renderResumePdf(browser: Browser, cvHtml: string, baseName: string): Promise<string> {
-  const page = await browser.newPage();
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${RESUME_CSS}</style></head><body>${cvHtml}</body></html>`;
-  await page.setContent(html, { waitUntil: 'networkidle' });
-  const dir = mkdtempSync(join(tmpdir(), 'lever-apply-'));
-  const path = join(dir, `${baseName}.pdf`);
-  await page.pdf({ path, format: 'A4', printBackground: true });
-  await page.close();
-  return path;
-}
 
 // ─── Filling helpers ──────────────────────────────────────────────────────
 
@@ -297,7 +280,8 @@ export async function runLeverApply(opts: {
     answers: [] as { name: string; label: string; value: string }[],
   };
 
-  const resumeBase = `${profile.firstName}_${profile.lastName}_Resume`.replace(/[^A-Za-z0-9_]/g, '') || 'Resume';
+  // Same naming the Download button uses, so the recruiter sees one consistent file name.
+  const resumeBase = buildResumeBasename({ firstName: profile.firstName, lastName: profile.lastName, company: job.company });
 
   const browser = await launchBrowser({ headless, slowMo: headless ? 0 : 350 });
 
@@ -321,7 +305,7 @@ export async function runLeverApply(opts: {
       resolvedResumePath = resumePath;
     } else {
       progress('render_resume', 'Rendering resume PDF');
-      resolvedResumePath = await renderResumePdf(browser, cvHtml, resumeBase);
+      resolvedResumePath = await renderResumePdfToFile(browser, cvHtml, resumeBase);
     }
 
     const context = await browser.newContext(

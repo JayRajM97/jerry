@@ -29,48 +29,18 @@ import RationalePanel from './components/RationalePanel';
 import LoginScreen from './components/LoginScreen';
 import AutoApplyPanel from './components/AutoApplyPanel';
 import ApplicationProfileForm from './components/ApplicationProfileForm';
-import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
-// @ts-ignore
-import { asBlob } from 'html-docx-js-typescript';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { docxToHtml, pdfToHtml } from './utils/importResume';
+import { resumeHtmlToDocxBlob } from './utils/htmlToDocx';
+import { applySuggestions, locateSuggestions } from './utils/applySuggestions';
+import { usePageFit, ensureResumeThemeStyle } from './utils/pageFit';
+import { buildResumeFilename } from './shared/resumeFilename';
+import { exportResumePdf, triggerDownload } from './services/exportService';
+import PageFitBadge from './components/PageFitBadge';
 
-// Initialize PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs`;
-
-// Helper to clean up DOCX HTML (fake bullets)
-const cleanDocxHtml = (html: string): string => {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
-  const body = doc.body;
-  
-  const newChildren: Element[] = [];
-  let currentList: HTMLElement | null = null;
-  
-  Array.from(body.children).forEach(child => {
-    const text = child.textContent || '';
-    // Match bullets: •, ●, -, *, ▪, ⁃
-    const bulletRegex = /^(\s*([•●\-\*▪⁃]|[\u2022\u2023\u25E6\u2043\u2219])\s+)/;
-    const isFakeBullet = child.tagName === 'P' && bulletRegex.test(text);
-    
-    if (child.tagName === 'UL' || child.tagName === 'OL') {
-        currentList = null;
-        newChildren.push(child.cloneNode(true) as Element);
-    } else if (isFakeBullet) {
-        if (!currentList) {
-            currentList = document.createElement('ul');
-            newChildren.push(currentList);
-        }
-        const li = document.createElement('li');
-        li.innerHTML = child.innerHTML.replace(bulletRegex, '');
-        currentList.appendChild(li);
-    } else {
-        currentList = null;
-        newChildren.push(child.cloneNode(true) as Element);
-    }
-  });
-  
-  return newChildren.map(c => c.outerHTML).join('');
-};
+// PDF.js worker ships with the app bundle rather than being fetched from a CDN at runtime.
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const App: React.FC = () => {
   // --- Auth State ---
@@ -94,6 +64,17 @@ const App: React.FC = () => {
   const [finalPreviewHtml, setFinalPreviewHtml] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Company the current application targets. Fills from the job URL fetch or the
+  // JD parse; the user can correct it. It names the exported file.
+  const [targetCompany, setTargetCompany] = useState('');
+  // Suggestions whose quoted original could not be located in the resume HTML.
+  const [unmatchedSuggestionIds, setUnmatchedSuggestionIds] = useState<string[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Shared resume stylesheet (also used by the PDF renderer) must be present
+  // before anything measures or displays a resume.
+  useEffect(() => { ensureResumeThemeStyle(); }, []);
+
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved === 'true' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -109,9 +90,11 @@ const App: React.FC = () => {
     }
   }, [isDarkMode]);
 
-  const showToast = (msg: string) => {
+  const toastTimer = useRef<number | null>(null);
+  const showToast = (msg: string, ms = 3500) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToastMessage(null), ms);
   };
 
   const [state, setState] = useState<AppState>({
@@ -342,13 +325,14 @@ const App: React.FC = () => {
   ) => {
     if (!user) return;
 
-    const finalHtml = compileFinalHtml(currentSections, currentSuggestions);
+    const finalHtml = applySuggestions(cvHtml, currentSuggestions).html;
     
     const newItem: HistoryItem = {
       id: Date.now().toString(),
       userId: user.id,
       timestamp: Date.now(),
       jobTitle: extractJobTitle(jdText),
+      companyName: targetCompany,
       jdText: jdText,
       originalCvHtml: cvHtml,
       optimizedCvHtml: finalHtml,
@@ -392,6 +376,7 @@ const App: React.FC = () => {
       loadingStep: ''
     });
     setFinalPreviewHtml(item.optimizedCvHtml);
+    setTargetCompany(item.companyName || '');
     setCurrentView('workspace');
     setActiveTab('analyze');
   };
@@ -400,6 +385,8 @@ const App: React.FC = () => {
     setCvHtml(masterCvHtml);
     setJdText('');
     setFinalPreviewHtml('');
+    setTargetCompany('');
+    setUnmatchedSuggestionIds([]);
     setState({
       originalSections: [],
       suggestions: [],
@@ -427,140 +414,12 @@ const App: React.FC = () => {
       const arrayBuffer = await file.arrayBuffer();
       let parsedHtml = '';
 
-      if (file.name.endsWith('.docx')) {
-        const result = await mammoth.convertToHtml({ arrayBuffer });
-        parsedHtml = cleanDocxHtml(result.value);
-      } else if (file.name.endsWith('.pdf')) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.docx')) {
+        parsedHtml = await docxToHtml(arrayBuffer);
+      } else if (lower.endsWith('.pdf')) {
         const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-        
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          
-          const heights = textContent.items.map((item: any) => item.height);
-          const modeHeight = heights.sort((a,b) =>
-            heights.filter(v => v===a).length - heights.filter(v => v===b).length
-          ).pop() || 12;
-
-          // --- PDF PARSING LOGIC ---
-          // 1. Group items by Y-coordinate (lines)
-          const items = textContent.items as any[];
-          const lines: { y: number, items: any[] }[] = [];
-          
-          items.forEach(item => {
-             const y = item.transform[5];
-             // Tolerance of 4 units for same line
-             const existingLine = lines.find(l => Math.abs(l.y - y) < 4);
-             if (existingLine) {
-                 existingLine.items.push(item);
-             } else {
-                 lines.push({ y, items: [item] });
-             }
-          });
-
-          // Sort lines top-to-bottom
-          lines.sort((a, b) => b.y - a.y);
-
-          // 2. Classify lines into Blocks
-          const blocks: { type: string, content: string }[] = [];
-
-          lines.forEach((line) => {
-             // Sort items left-to-right
-             line.items.sort((a, b) => a.transform[4] - b.transform[4]);
-             
-             // Determine max height in this line to guess if it's a header
-             const maxHeight = Math.max(...line.items.map(i => i.height));
-             const isHeader = maxHeight > modeHeight * 1.1; 
-             const isBigHeader = maxHeight > modeHeight * 1.4;
-             
-             // Reconstruct text with basic formatting
-             let lineHtml = '';
-             line.items.forEach((item: any) => {
-                 if (!item.str) return;
-                 let text = item.str;
-                 
-                 // Basic font style detection
-                 const styleObj = textContent.styles[item.fontName];
-                 const fontNameStr = styleObj?.fontFamily || '';
-                 const fontNameLower = item.fontName ? item.fontName.toLowerCase() : '';
-                 const familyLower = fontNameStr.toLowerCase();
-                 
-                 const isBold = familyLower.includes('bold') || fontNameLower.includes('bold') || fontNameLower.includes('black');
-                 const isItalic = familyLower.includes('italic') || familyLower.includes('oblique') || fontNameLower.includes('italic');
-                 
-                 if (isBold) text = `<strong>${text}</strong>`;
-                 if (isItalic) text = `<em>${text}</em>`;
-                 
-                 lineHtml += text;
-             });
-
-             // --- BULLET DETECTION ---
-             const trimmedLine = lineHtml.trim();
-             const bulletRegex = /^(\s*([•●\-\*▪⁃]|[\u2022\u2023\u25E6\u2043\u2219])\s+)/;
-             const isBullet = bulletRegex.test(trimmedLine);
-
-             // --- HEADER DETECTION OVERRIDE ---
-             const finalIsHeader = (isHeader || isBigHeader) && !isBullet;
-
-             if (finalIsHeader) {
-                 blocks.push({ type: isBigHeader ? 'h1' : 'h2', content: lineHtml });
-             } else if (isBullet) {
-                 const cleanContent = lineHtml.replace(bulletRegex, '').trim();
-                 blocks.push({ type: 'li', content: cleanContent });
-             } else {
-                 if (trimmedLine.length > 0) {
-                     blocks.push({ type: 'p', content: lineHtml });
-                 }
-             }
-          });
-
-          // 3. Merge Paragraphs (Fix broken lines)
-          const mergedBlocks: { type: string, content: string }[] = [];
-          
-          blocks.forEach((block, idx) => {
-             if (idx === 0) {
-                 mergedBlocks.push(block);
-                 return;
-             }
-             
-             const prev = mergedBlocks[mergedBlocks.length - 1];
-             
-             // Merge if both are 'p' and prev doesn't end in punctuation
-             const stripTags = (s: string) => s.replace(/<[^>]+>/g, '').trim();
-             const endsWithPunctuation = /[.!?]$/.test(stripTags(prev.content));
-             
-             if (block.type === 'p' && prev.type === 'p' && !endsWithPunctuation) {
-                 prev.content += ' ' + block.content;
-             } else {
-                 mergedBlocks.push(block);
-             }
-          });
-
-          // 4. Generate HTML from Blocks
-          let pageHtml = '';
-          let inList = false;
-          
-          mergedBlocks.forEach(block => {
-              if (inList && block.type !== 'li') {
-                  pageHtml += '</ul>';
-                  inList = false;
-              }
-              
-              if (block.type === 'li') {
-                  if (!inList) {
-                      pageHtml += '<ul>';
-                      inList = true;
-                  }
-                  pageHtml += `<li>${block.content}</li>`;
-              } else {
-                  pageHtml += `<${block.type}>${block.content}</${block.type}>`;
-              }
-          });
-          
-          if (inList) pageHtml += '</ul>';
-          
-          parsedHtml += pageHtml;
-        }
+        parsedHtml = await pdfToHtml(pdf as any);
       } else {
         alert("Unsupported file format");
         setState(prev => ({ ...prev, isLoading: false }));
@@ -612,6 +471,9 @@ const App: React.FC = () => {
     try {
       setState(prev => ({ ...prev, loadingStep: 'Evaluating match' }));
       const currentScore = await calculateATSScore(cvHtml, jdText);
+      if (!targetCompany.trim() && currentScore?.parsedJd?.company) {
+        setTargetCompany(String(currentScore.parsedJd.company));
+      }
       await new Promise(resolve => setTimeout(resolve, 1500));
       
       setState(prev => ({ ...prev, loadingStep: 'Optimizing phrasing' }));
@@ -631,8 +493,10 @@ const App: React.FC = () => {
         generateIntroduction(currentScore.parsedCv, currentScore.parsedJd)
       ]);
 
-      let optimizedFullHtml = sections.map(s => s.optimizedHtmlContent || s.htmlContent).join('');
       let appliedSuggestions = suggestions.map(s => ({ ...s, applied: true }));
+      // Score what will actually ship: the user's HTML with the suggestions applied
+      // in place, not the model's rewritten sections.
+      let optimizedFullHtml = applySuggestions(cvHtml, appliedSuggestions).html;
       
       await new Promise(resolve => setTimeout(resolve, 1500));
 
@@ -670,7 +534,7 @@ const App: React.FC = () => {
          
          // Revert all suggestions to ensure monotonicity
          appliedSuggestions = appliedSuggestions.map(s => ({ ...s, applied: false }));
-         optimizedFullHtml = sections.map(s => s.htmlContent).join(''); 
+         optimizedFullHtml = cvHtml;
          
          suggestedScore = await calculateATSScore(optimizedFullHtml, jdText, currentScore.parsedJd);
       }
@@ -748,103 +612,76 @@ const App: React.FC = () => {
     }, 100);
   };
 
-  const compileFinalHtml = (sections: CVSection[], suggestions: Suggestion[]) => {
-    if (sections.length > 0) {
-      return sections.map(sec => {
-        let content = sec.optimizedHtmlContent || sec.htmlContent;
-        suggestions
-          .filter(s => s.sectionId === sec.id && !s.applied)
-          .forEach(s => {
-            if (content.includes(s.suggestedHtml)) {
-               content = content.replace(s.suggestedHtml, s.originalHtml);
-            }
-          });
-        return `<h2>${sec.title}</h2>${content}`;
-      }).join('');
+  // The final CV is the user's own HTML with accepted suggestions swapped in
+  // element by element. Nothing else is regenerated, so formatting survives.
+  useEffect(() => {
+    if (!cvHtml) {
+      setFinalPreviewHtml('');
+      setUnmatchedSuggestionIds([]);
+      return;
     }
-    return '';
+    if (state.suggestions.length === 0) {
+      setFinalPreviewHtml(cvHtml);
+      setUnmatchedSuggestionIds([]);
+      return;
+    }
+    setFinalPreviewHtml(applySuggestions(cvHtml, state.suggestions).html);
+    setUnmatchedSuggestionIds(locateSuggestions(cvHtml, state.suggestions).unmatchedIds);
+  }, [state.suggestions, cvHtml]);
+
+  // Live one-page measurement of what the preview shows, using the PDF's own layout rules.
+  const previewFit = usePageFit(finalPreviewHtml || cvHtml);
+
+  const resumeFilename = (ext: 'pdf' | 'docx') => {
+    const [fallbackFirst = '', ...fallbackRest] = (user?.name || '').trim().split(/\s+/);
+    return buildResumeFilename({
+      firstName: applicationProfile?.firstName || fallbackFirst,
+      lastName: applicationProfile?.lastName || fallbackRest.join(' '),
+      company: targetCompany,
+      ext,
+    });
   };
 
-  useEffect(() => {
-    setFinalPreviewHtml(compileFinalHtml(state.originalSections, state.suggestions) || cvHtml);
-  }, [state.originalSections, state.suggestions, cvHtml]);
-
-  const handleDownloadPDF = () => {
-    // Check if we are in preview mode to find the element
-    // We select the A4 page container
-    const element = document.querySelector('.a4-page');
-    if (!element) {
-        alert("Please ensure you are in the Preview tab to download PDF.");
-        return;
+  const handleDownloadPDF = async () => {
+    const html = finalPreviewHtml || cvHtml;
+    if (!html.trim()) {
+      showToast('Nothing to export yet.');
+      return;
     }
-    
-    const opt = {
-      margin: 0, 
-      filename: 'resume.pdf',
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-
-    // @ts-ignore
-    if (window.html2pdf) {
-        // @ts-ignore
-        window.html2pdf().set(opt).from(element).save();
-    } else {
-        // Fallback if library failed to load
-        window.print();
+    setIsExporting(true);
+    try {
+      const out = await exportResumePdf(html, resumeFilename('pdf'));
+      triggerDownload(out.blob, out.filename);
+      if (!out.fits) {
+        showToast(`Saved ${out.filename} — still ${out.pages} pages even at minimum size. Trim a few lines.`, 6000);
+      } else if (out.scale < 1) {
+        showToast(`Saved ${out.filename} — shrunk to ${Math.round(out.scale * 100)}% to fit one page.`, 5000);
+      } else {
+        showToast(`Saved ${out.filename} — one page.`);
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'PDF export failed.', 6000);
+    } finally {
+      setIsExporting(false);
     }
   };
 
   const handleDownloadDOCX = async () => {
-      // Ensure we have content
-      if (!finalPreviewHtml) {
-        alert("No content to download.");
-        return;
-      }
-
-      // Construct a clean, standard HTML document for the converter
-      const htmlString = `<!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Resume</title>
-        <style>
-          body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #000000; line-height: 1.15; }
-          h1 { font-size: 18pt; font-weight: bold; border-bottom: 1px solid #000; margin-bottom: 6pt; color: #000000; }
-          h2 { font-size: 14pt; font-weight: bold; margin-top: 12pt; margin-bottom: 6pt; color: #000000; text-transform: uppercase; }
-          p { margin-bottom: 6pt; margin-top: 0; }
-          ul { margin-bottom: 6pt; margin-left: 24pt; padding-left: 0; }
-          li { margin-bottom: 2pt; }
-          a { color: #0563C1; text-decoration: underline; }
-          strong, b { font-weight: bold; }
-          em, i { font-style: italic; }
-        </style>
-      </head>
-      <body>
-        ${finalPreviewHtml}
-      </body>
-      </html>`;
-      
-      try {
-          // Use asBlob from library
-          const blob = await asBlob(htmlString) as Blob;
-          if (blob && blob.size > 0) {
-              const url = URL.createObjectURL(blob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.download = 'optimized_resume.docx';
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              URL.revokeObjectURL(url);
-          } else {
-             alert("Generated DOCX is empty. Please verify content.");
-          }
-      } catch (e) {
-          console.error("DOCX Generation Error:", e);
-          alert("Error creating DOCX file.");
-      }
+    const html = finalPreviewHtml || cvHtml;
+    if (!html.trim()) {
+      showToast('Nothing to export yet.');
+      return;
+    }
+    try {
+      // Real Word paragraphs (not an HTML altChunk), so ATS parsers can read it.
+      const blob = await resumeHtmlToDocxBlob(html);
+      const name = resumeFilename('docx');
+      triggerDownload(blob, name);
+      showToast(`Saved ${name}.`);
+    } catch (e) {
+      console.error('DOCX Generation Error:', e);
+      showToast('Error creating DOCX file.', 6000);
+    }
   };
 
   // --- RENDERING ---
@@ -935,6 +772,14 @@ const App: React.FC = () => {
               {tab.label}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Toast Notification (all views) */}
+      {toastMessage && (
+        <div className="fixed bottom-8 left-8 bg-black dark:bg-white text-white dark:text-black px-6 py-4 rounded shadow-2xl z-[60] flex items-center gap-3 max-w-xl">
+          <Check size={18} className="text-green-400 shrink-0" />
+          <span className="text-sm font-bold tracking-wide">{toastMessage}</span>
         </div>
       )}
 
@@ -1082,7 +927,7 @@ const App: React.FC = () => {
                     cvHtml={finalPreviewHtml || cvHtml}
                     jdText={jdText}
                     submittedKeys={submittedKeys}
-                    onJobFetched={setJdText}
+                    onJobFetched={(jd, company) => { setJdText(jd); if (company) setTargetCompany(company); }}
                     onResult={handleApplyResult}
                     onEditProfile={() => setCurrentView('profile')}
                   />
@@ -1092,14 +937,6 @@ const App: React.FC = () => {
 
             {activeTab === 'analyze' && (
               <div className="flex-1 overflow-auto bg-white dark:bg-[#141414] no-print relative scroll-smooth">
-                {/* Toast Notification */}
-                {toastMessage && (
-                  <div className="fixed bottom-8 left-8 bg-black dark:bg-white text-white dark:text-black px-6 py-4 rounded shadow-2xl z-50 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <Check size={18} className="text-green-400" />
-                    <span className="text-sm font-bold tracking-wide">{toastMessage}</span>
-                  </div>
-                )}
-
                 <div className="p-8 md:p-12 max-w-[1600px] mx-auto w-full">
                   
                   {/* Top Section: Scores (50-50) */}
@@ -1163,9 +1000,21 @@ const App: React.FC = () => {
                           </a>
                        </nav>
                        
+                       {state.originalSections.length > 0 && (
+                         <div className="mt-8 space-y-3">
+                           <p className="font-bold text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500">With accepted changes</p>
+                           <PageFitBadge fit={previewFit} className="w-full justify-center" />
+                           {unmatchedSuggestionIds.length > 0 && (
+                             <p className="text-[10px] leading-relaxed text-amber-700 dark:text-amber-400">
+                               {unmatchedSuggestionIds.length} suggestion{unmatchedSuggestionIds.length === 1 ? '' : 's'} could not be located in your resume and will not apply automatically. Copy the text in manually if you want {unmatchedSuggestionIds.length === 1 ? 'it' : 'them'}.
+                             </p>
+                           )}
+                         </div>
+                       )}
+
                        <button 
                           onClick={() => setActiveTab('preview')}
-                          className="mt-12 w-full uber-button-primary py-4 font-bold tracking-[0.2em] text-[10px] uppercase shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-1"
+                          className="mt-8 w-full uber-button-primary py-4 font-bold tracking-[0.2em] text-[10px] uppercase shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-1"
                         >
                           PROCEED TO EDITOR
                        </button>
@@ -1219,8 +1068,10 @@ const App: React.FC = () => {
                                                  <div key={s.id} className={`border rounded-sm shadow-sm transition-all ${s.applied ? 'border-green-300 dark:border-green-800' : 'border-gray-200 dark:border-[#333333] opacity-60'}`}>
                                                     <div className={`p-6 space-y-4 ${s.applied ? 'bg-green-50/40 dark:bg-green-900/10' : 'bg-gray-50/50 dark:bg-[#141414]/50'}`}>
                                                        <div className="flex items-center justify-between gap-3">
-                                                         <span className={`text-[10px] font-bold uppercase tracking-widest ${s.applied ? 'text-green-700 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`}>
-                                                           {s.applied ? 'Accepted — will appear in final CV' : 'Rejected — original kept'}
+                                                         <span className={`text-[10px] font-bold uppercase tracking-widest ${unmatchedSuggestionIds.includes(s.id) ? 'text-amber-700 dark:text-amber-400' : s.applied ? 'text-green-700 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                                                           {unmatchedSuggestionIds.includes(s.id)
+                                                             ? 'Not found in your resume — copy manually'
+                                                             : s.applied ? 'Accepted — will appear in final CV' : 'Rejected — original kept'}
                                                          </span>
                                                          <div className="flex gap-2">
                                                            <button
@@ -1257,7 +1108,7 @@ const App: React.FC = () => {
                                             </div>
                                           ) : (
                                             <div className="text-black text-sm">
-                                              <div dangerouslySetInnerHTML={{ __html: sec.htmlContent }} className="cv-content" />
+                                              <div dangerouslySetInnerHTML={{ __html: sec.htmlContent }} className="cv-content resume-root" />
                                               <div className="mt-8 pt-4 border-t border-gray-50 dark:border-[#333333] text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
                                                 No optimizations needed.
                                               </div>
@@ -1457,14 +1308,27 @@ const App: React.FC = () => {
             {activeTab === 'preview' && (
               <div className="flex-1 bg-[#E8E8E8] dark:bg-[#0A0A0A] flex flex-col items-center overflow-hidden">
                 <div className="w-full bg-white dark:bg-[#141414] border-b border-gray-200 dark:border-[#333333] p-4 px-8 flex justify-between items-center shrink-0 shadow-sm z-20 no-print">
-                  <div>
-                      <h2 className="text-lg font-bold tracking-tight">Final Editor</h2>
-                      <p className="text-xs text-gray-500 font-medium">Make final tweaks before downloading.</p>
+                  <div className="flex items-center gap-6">
+                      <div>
+                        <h2 className="text-lg font-bold tracking-tight">Final Editor</h2>
+                        <p className="text-xs text-gray-500 font-medium">What you see here is what the PDF will be.</p>
+                      </div>
+                      <PageFitBadge fit={previewFit} />
                   </div>
-                  <div className="flex gap-4">
+                  <div className="flex items-center gap-4">
+                      <label className="flex flex-col">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">Company</span>
+                        <input
+                          value={targetCompany}
+                          onChange={e => setTargetCompany(e.target.value)}
+                          placeholder="e.g. Stripe"
+                          className="w-40 border border-gray-200 dark:border-[#333333] bg-white dark:bg-[#141414] px-2 py-1 text-xs font-bold outline-none focus:border-black dark:focus:border-white"
+                        />
+                        <span className="text-[9px] text-gray-400 font-mono mt-1 truncate max-w-[240px]" title={resumeFilename('pdf')}>{resumeFilename('pdf')}</span>
+                      </label>
                       <button onClick={() => setActiveTab('analyze')} className="px-6 py-2 uber-button-secondary text-[10px] font-bold uppercase tracking-widest">BACK</button>
                       <button onClick={handleDownloadDOCX} className="uber-button-secondary bg-blue-50 text-blue-600 border-blue-200 text-[10px] font-bold tracking-widest uppercase hover:bg-blue-100">DOWNLOAD DOCX</button>
-                      <button onClick={handleDownloadPDF} className="uber-button-secondary text-[10px] font-bold tracking-widest uppercase">DOWNLOAD PDF</button>
+                      <button onClick={handleDownloadPDF} disabled={isExporting} className="uber-button-secondary text-[10px] font-bold tracking-widest uppercase disabled:opacity-50">{isExporting ? 'EXPORTING…' : 'DOWNLOAD PDF'}</button>
                       <button onClick={handleUseForAutoApply} className="uber-button-primary text-[10px] font-bold tracking-widest uppercase flex items-center gap-2">
                         <Sparkles size={12} /> SAVE & USE TO APPLY
                       </button>
@@ -1478,6 +1342,7 @@ const App: React.FC = () => {
                         onChange={setFinalPreviewHtml}
                         className="h-auto w-full"
                         viewMode="page"
+                        pageScale={previewFit?.scale ?? 1}
                     />
 
                     {/* Messages in Preview */}

@@ -26,8 +26,9 @@
       }
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- Added html2pdf for robust client-side PDF generation -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Open Sans is the resume font: the same face is embedded in the server-rendered PDF,
+         so the on-screen page wraps exactly like the file. -->
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -172,105 +173,18 @@
             background-color: #1E1E1E;
         }
 
-        /* CV Content & Editor Styles - Enforcing Standard Formatting */
-        .cv-content, .ProseMirror {
-            color: #000000;
-            font-size: 11pt;
-            line-height: 1.4;
-            font-family: 'Calibri', 'Arial', sans-serif;
-            text-align: left;
-        }
-
-        /* Dark mode: editor text needs to be readable on dark backgrounds.
-           The .a4-page rule below re-forces black inside the paper preview so the PDF still looks right. */
-        html.dark .cv-content, html.dark .ProseMirror {
-            color: #E8E8E8;
-        }
-
+        /* Resume typography (fonts, headings, lists, links) is NOT defined here. It lives in
+           shared/resumeTheme.ts and is injected at runtime as #resume-theme-style, because the
+           server-side PDF renderer uses the very same rules. Only editor chrome stays below. */
         .ProseMirror {
             min-height: 100%;
             outline: none;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
             max-width: 100%;
         }
+        /* Dark mode: the fluid editor needs readable ink; the paper preview is re-forced to black below. */
+        html.dark .ProseMirror { color: #E8E8E8; }
+        html.dark .ProseMirror a { color: #6BA4FF; }
 
-        /* STRICT FORMATTING ENFORCEMENT */
-        .cv-content strong, .cv-content b,
-        .ProseMirror strong, .ProseMirror b {
-            font-weight: 700 !important;
-            color: inherit;
-        }
-
-        .cv-content em, .cv-content i,
-        .ProseMirror em, .ProseMirror i {
-            font-style: italic !important;
-        }
-
-        .cv-content u, .ProseMirror u {
-            text-decoration: underline !important;
-        }
-
-        .cv-content a, .ProseMirror a {
-            color: #0563C1;
-            text-decoration: underline;
-        }
-        html.dark .cv-content a, html.dark .ProseMirror a {
-            color: #6BA4FF;
-        }
-
-        .cv-content p, .ProseMirror p { 
-            margin-bottom: 0.5rem; 
-        }
-        
-        /* Lists - Ensure bullets are visible and indented */
-        .cv-content ul, .ProseMirror ul { 
-            list-style-type: disc !important; 
-            margin-left: 1.5rem !important; 
-            margin-bottom: 0.5rem !important; 
-            padding-left: 0.5rem !important;
-        }
-        .cv-content ol, .ProseMirror ol { 
-            list-style-type: decimal !important; 
-            margin-left: 1.5rem !important; 
-            margin-bottom: 0.5rem !important; 
-            padding-left: 0.5rem !important;
-        }
-        .cv-content li, .ProseMirror li { 
-            display: list-item !important; 
-            margin-bottom: 0.2rem;
-            padding-left: 0.2rem;
-        }
-        .cv-content li p, .ProseMirror li p {
-            margin-bottom: 0;
-            display: inline;
-        }
-
-        /* Headings */
-        .cv-content h1, .ProseMirror h1 {
-            font-size: 18pt;
-            font-weight: 700 !important;
-            margin-top: 1.5rem;
-            margin-bottom: 0.5rem;
-            border-bottom: 1px solid currentColor;
-            padding-bottom: 4px;
-            line-height: 1.2;
-        }
-        .cv-content h2, .ProseMirror h2 {
-            font-size: 14pt;
-            font-weight: 700 !important;
-            margin-top: 1rem;
-            margin-bottom: 0.5rem;
-            line-height: 1.2;
-        }
-        .cv-content h3, .ProseMirror h3 {
-            font-size: 12pt;
-            font-weight: 700 !important;
-            margin-top: 0.5rem;
-            margin-bottom: 0.25rem;
-            text-transform: uppercase;
-        }
-        
         /* A4 Page Simulation for Editor/Preview */
         .a4-page {
             width: 210mm;
@@ -367,7 +281,6 @@
     "@tiptap/extension-text-align": "https://esm.sh/@tiptap/extension-text-align@^2.6.6",
     "mammoth": "https://esm.sh/mammoth@^1.4.8",
     "pdfjs-dist": "https://esm.sh/pdfjs-dist@4.10.38",
-    "html-docx-js-typescript": "https://esm.sh/html-docx-js-typescript@0.1.5",
     "clsx": "https://esm.sh/clsx@^2.1.1",
     "tailwind-merge": "https://esm.sh/tailwind-merge@^2.3.0",
     "@libsql/client": "https://esm.sh/@libsql/client@0.6.0/web"

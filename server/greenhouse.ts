@@ -1,10 +1,11 @@
 import type { Browser, Page } from 'playwright-core';
 import { launchBrowser, isServerless } from './browser.js';
-import { mkdirSync, mkdtempSync } from 'fs';
-import { tmpdir } from 'os';
-import { join, resolve as resolvePath } from 'path';
+import { mkdirSync } from 'fs';
+import { resolve as resolvePath } from 'path';
 import type { ApplicationProfile, ApplyResult } from '../types.js';
 import { generateApplicationAnswers } from './gemini.js';
+import { renderResumePdfToFile } from './resumePdf.js';
+import { buildResumeBasename } from '../shared/resumeFilename.js';
 
 // --- Greenhouse Job Board API types (subset we use) ---
 interface GhFieldValue { label: string; value: string | number; }
@@ -223,23 +224,6 @@ export async function buildFieldPlan(
 
 type ProgressFn = (step: string, message?: string) => void;
 
-const RESUME_CSS = `body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000;line-height:1.3;padding:20mm;}
-h1{font-size:18pt;font-weight:bold;border-bottom:1px solid #000;margin:0 0 6pt;}
-h2{font-size:14pt;font-weight:bold;margin:12pt 0 6pt;text-transform:uppercase;}
-p{margin:0 0 6pt;}ul{margin:0 0 6pt 24pt;}li{margin-bottom:2pt;}
-a{color:#0563C1;text-decoration:underline;}strong,b{font-weight:bold;}em,i{font-style:italic;}`;
-
-// Render the CV HTML to a PDF named after the candidate (the basename becomes the uploaded filename).
-async function renderResumePdf(browser: Browser, cvHtml: string, baseName: string): Promise<string> {
-  const page = await browser.newPage();
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${RESUME_CSS}</style></head><body>${cvHtml}</body></html>`;
-  await page.setContent(html, { waitUntil: 'networkidle' });
-  const dir = mkdtempSync(join(tmpdir(), 'auto-apply-'));
-  const path = join(dir, `${baseName}.pdf`);
-  await page.pdf({ path, format: 'A4', printBackground: true });
-  await page.close();
-  return path;
-}
 
 // GH shows the filename + a remove control once a file is attached (give React a moment to render).
 async function resumeAttached(page: Page, fileName: string): Promise<boolean> {
@@ -331,7 +315,8 @@ export async function runApply(opts: {
   }
 
   const nameFor = (n: string) => plan.fields.find(f => f.name === n)?.value || '';
-  const resumeBase = `${nameFor('first_name')}_${nameFor('last_name')}_Resume`.replace(/[^A-Za-z0-9_]/g, '') || 'Resume';
+  // Same naming the Download button uses, so the recruiter sees one consistent file name.
+  const resumeBase = buildResumeBasename({ firstName: nameFor('first_name'), lastName: nameFor('last_name'), company: job.company });
 
   // Slow down actions when visible so the user can follow the automation.
   const browser = await launchBrowser({ headless, slowMo: headless ? 0 : 350 });
@@ -358,7 +343,7 @@ export async function runApply(opts: {
       resolvedResumePath = resumePath;
     } else {
       progress('render_resume', 'Rendering resume PDF from CV HTML');
-      resolvedResumePath = await renderResumePdf(browser, cvHtml, resumeBase);
+      resolvedResumePath = await renderResumePdfToFile(browser, cvHtml, resumeBase);
     }
     const resumeFileName = resolvedResumePath.split('/').pop() || `${resumeBase}.pdf`;
 

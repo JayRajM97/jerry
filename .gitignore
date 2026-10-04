@@ -28,3 +28,4 @@ recordings/
 .vercel
 .env*
 !.env.example
+scripts/test/out/

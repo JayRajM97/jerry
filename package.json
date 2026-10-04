@@ -10,7 +10,12 @@
     "build": "vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "lint": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:import": "tsx scripts/test/import-pdf.test.ts",
+    "test:apply": "tsx scripts/test/apply-suggestions.test.ts",
+    "test:docx": "tsx scripts/test/docx-roundtrip.test.ts",
+    "test:export": "tsx scripts/test/export-pdf.test.ts",
+    "test": "npm run test:apply && npm run test:import && npm run test:docx"
   },
   "dependencies": {
     "@google/genai": "^1.40.0",
@@ -22,10 +27,11 @@
     "@tiptap/react": "^2.6.6",
     "@tiptap/starter-kit": "^2.6.6",
     "clsx": "^2.1.1",
+    "docx": "^9.8.1",
     "express": "^4.21.2",
-    "html-docx-js-typescript": "0.1.5",
     "lucide-react": "^0.575.0",
     "mammoth": "^1.4.8",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "4.10.38",
     "playwright": "1.49.1",
     "playwright-core": "1.49.1",
@@ -36,9 +42,11 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.1.2",
+    "jsdom": "^25.0.1",
     "tsx": "^4.19.2",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
