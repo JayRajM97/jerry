@@ -35,7 +35,9 @@ export const RESUME_MIN_SCALE = 0.8;
 /** CSS px per mm at the 96dpi every browser uses for physical units. */
 export const PX_PER_MM = 96 / 25.4;
 
-export const RESUME_FONT_FAMILY = `'Open Sans', 'Segoe UI', Arial, Helvetica, sans-serif`;
+// 'DejaVu Sans' is embedded server-side as the per-glyph fallback (arrows, ₹, ticks);
+// on screen the browser falls back to system fonts for the same characters.
+export const RESUME_FONT_FAMILY = `'Open Sans', 'DejaVu Sans', 'Segoe UI', Arial, Helvetica, sans-serif`;
 
 export const RESUME_CSS = `
 .resume-page {

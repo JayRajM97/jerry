@@ -124,7 +124,7 @@ deployment set `VIA_VERCEL_CURL=<team-slug>` and it routes requests through `ver
 | `/api/*` | One Express app (`server/app.ts`) mounted as a Vercel Function via `api/index.ts` |
 | Gemini calls | Server-side only (`server/aiCore.ts`, `server/gemini.ts`) |
 | Playwright apply runs | Same Function; Chromium comes from `@sparticuz/chromium` in serverless, local Playwright in dev |
-| PDF export | Same Chromium, `server/resumePdf.ts`; fonts in `server/fonts/` (Open Sans, OFL) |
+| PDF export | Same Chromium, `server/resumePdf.ts`; fonts in `server/fonts/` (Open Sans, OFL; DejaVu Sans as glyph fallback for →, ₹, ✓) |
 
 `server/browser.ts` picks the right Chromium. Both of its imports are dynamic, so the
 ~64MB Chromium pack is only loaded by the routes that actually drive a browser.

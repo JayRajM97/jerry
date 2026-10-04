@@ -78,6 +78,8 @@ async function inspect(buf: Buffer) {
     check('text layer has the name', info.text.includes('Jayraj Makhar'));
     check('text layer has a late bullet (nothing clipped)', /Outside of work|OUTSIDE OF WORK|Spotify|spotify/i.test(info.text), info.text.slice(-120));
     check('hyperlinks preserved (≥ 15 of 18)', info.links.length >= 15, `${info.links.length}`);
+    check('arrows (→) survive in the text layer', info.text.includes('→'), info.text.match(/Simulate.{0,12}Listen/)?.[0] || 'not found');
+    check('rupee sign (₹) survives in the text layer', info.text.includes('₹'), info.text.match(/\(.{0,3}7\/image/)?.[0] || 'not found');
     check('20mm page margin (left ≈ 56.7pt)', Math.abs((info.firstX || 0) - 56.7) < 3, `${info.firstX?.toFixed(1)}pt`);
     check('20mm top margin (first line < 80pt from top)', info.firstYFromTop > 50 && info.firstYFromTop < 85, `${info.firstYFromTop.toFixed(1)}pt`);
     check('server reports fits', hdr.fits === 'true');

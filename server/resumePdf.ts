@@ -36,16 +36,20 @@ let fontCssCache: string | null = null;
 export function resumeFontFaceCss(): string {
   if (fontCssCache !== null) return fontCssCache;
   const faces = [
-    { file: 'OpenSans-Regular.ttf', weight: 400, style: 'normal' },
-    { file: 'OpenSans-Bold.ttf', weight: 700, style: 'normal' },
-    { file: 'OpenSans-Italic.ttf', weight: 400, style: 'italic' },
+    { family: 'Open Sans', file: 'OpenSans-Regular.ttf', weight: 400, style: 'normal' },
+    { family: 'Open Sans', file: 'OpenSans-Bold.ttf', weight: 700, style: 'normal' },
+    { family: 'Open Sans', file: 'OpenSans-Italic.ttf', weight: 400, style: 'italic' },
+    // Per-glyph fallback. Open Sans has no arrows (→), rupee (₹), ticks and the
+    // like, and the serverless Chromium has no system font to fall back to, so
+    // without this those characters silently vanish from the PDF.
+    { family: 'DejaVu Sans', file: 'DejaVuSans.ttf', weight: 400, style: 'normal' },
   ];
   const rules: string[] = [];
   for (const f of faces) {
     try {
       const b64 = readFileSync(join(here, 'fonts', f.file)).toString('base64');
       rules.push(
-        `@font-face{font-family:'Open Sans';font-weight:${f.weight};font-style:${f.style};` +
+        `@font-face{font-family:'${f.family}';font-weight:${f.weight};font-style:${f.style};` +
         `font-display:block;src:url(data:font/ttf;base64,${b64}) format('truetype');}`,
       );
     } catch {
