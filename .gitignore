@@ -27,3 +27,4 @@ recordings/
 # Vercel
 .vercel
 .env*
+!.env.example
