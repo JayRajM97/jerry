@@ -27,6 +27,7 @@ const client = cloudSyncEnabled
 // Keys for LocalStorage fallback
 const FALLBACK_PREFIX_HISTORY = 'ru_offline_history_';
 const FALLBACK_PREFIX_MASTER = 'ru_offline_master_';
+const PREFIX_WORKING_CV = 'ru_working_cv_';
 const FALLBACK_PREFIX_APP_PROFILE = 'ru_offline_app_profile_';
 const FALLBACK_PREFIX_SUBMITTED = 'ru_offline_submitted_';
 const FALLBACK_PREFIX_APP_LOG = 'ru_offline_app_log_';
@@ -227,6 +228,32 @@ export const databaseService = {
       // Fallback Local
       const key = `${FALLBACK_PREFIX_MASTER}${userId}`;
       localStorage.setItem(key, htmlContent);
+    }
+  },
+
+  /**
+   * The resume currently loaded in the workspace, per user.
+   *
+   * Distinct from the master CV on purpose: the master is the canonical resume,
+   * while this is whatever was last uploaded or pasted for an application. It is
+   * restored on next visit so a pasted resume is not silently lost.
+   *
+   * Device-local by design (a draft, not a record), so it is kept in
+   * LocalStorage rather than given a Turso table.
+   */
+  getWorkingCV: (userId: string): string | null => {
+    try {
+      return localStorage.getItem(`${PREFIX_WORKING_CV}${userId}`);
+    } catch {
+      return null;
+    }
+  },
+
+  saveWorkingCV: (userId: string, htmlContent: string): void => {
+    try {
+      localStorage.setItem(`${PREFIX_WORKING_CV}${userId}`, htmlContent);
+    } catch {
+      /* storage full or blocked — the in-memory copy still works for this session */
     }
   },
 

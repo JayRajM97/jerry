@@ -20,6 +20,7 @@ import {
   generateIntroduction
 } from './services/geminiService';
 import { authService } from './services/authService';
+import type { SignInIdentity } from './services/authService';
 import { databaseService } from './services/databaseService';
 import { SAMPLE_CV, SAMPLE_JD } from './constants';
 import ATSScoreCard from './components/ATSScoreCard';
@@ -150,27 +151,66 @@ const App: React.FC = () => {
     initApp();
   }, []);
 
-  const makeDefaultProfile = (_u: UserProfile | null): ApplicationProfile => ({
-    firstName: 'Jayraj',
-    lastName: 'Makhar',
-    email: 'jayraj.mka@gmail.com',
-    phone: '+919993639957',
-    location: 'Bangalore, India',
-    workAuthorized: true,          // authorized in India; set false when applying to US roles
-    needsVisaSponsorship: false,   // no sponsorship needed in India; true for US roles
-    linkedinUrl: 'https://linkedin.com/in/jayrajmakhar',
-    githubUrl: 'https://github.com/JayRajM97',
-    portfolioUrl: 'https://jayrajmakhar.com',
-    gender: 'Male',
-    currentCompensation: '32.5L base + 40L ESOPs',
-    expectedCompensation: '40L + Variable',
-    noticePeriod: 'Immediately available — 0 days notice',
-    aiShowcaseLink: 'https://shopos.ai',
-    yearsExperience: '6.5',
-    industry: 'SaaS / internet',
-    resumePath: '/Users/harshwardhansolanki/Documents/jay-claude/jerry/2026 - Jayraj Makhar - AI Product Manager.pdf',
-    declineDemographics: true,
-  });
+  // The app has no real identity provider, so "owner" just means the email the
+  // seeded resume and profile belong to. Anyone else starts from a blank profile
+  // rather than inheriting these details into their job applications.
+  const OWNER_EMAIL = 'jayraj.mka@gmail.com';
+  const isOwnerEmail = (email?: string | null) =>
+    (email || '').trim().toLowerCase() === OWNER_EMAIL;
+
+  const makeDefaultProfile = (u: UserProfile | null): ApplicationProfile => {
+    if (isOwnerEmail(u?.email)) {
+      return {
+        firstName: 'Jayraj',
+        lastName: 'Makhar',
+        email: 'jayraj.mka@gmail.com',
+        phone: '+919993639957',
+        location: 'Bangalore, India',
+        workAuthorized: true,          // authorized in India; set false when applying to US roles
+        needsVisaSponsorship: false,   // no sponsorship needed in India; true for US roles
+        linkedinUrl: 'https://linkedin.com/in/jayrajmakhar',
+        githubUrl: 'https://github.com/JayRajM97',
+        portfolioUrl: 'https://jayrajmakhar.com',
+        gender: 'Male',
+        currentCompensation: '32.5L base + 40L ESOPs',
+        expectedCompensation: '40L + Variable',
+        noticePeriod: 'Immediately available — 0 days notice',
+        aiShowcaseLink: 'https://shopos.ai',
+        yearsExperience: '6.5',
+        industry: 'SaaS / internet',
+        // Empty on purpose: auto-apply renders the resume PDF from the CV HTML.
+        // A local absolute path does not exist on the deployed server.
+        resumePath: '',
+        declineDemographics: true,
+      };
+    }
+
+    const nameParts = (u?.name || '').trim().split(/\s+/).filter(Boolean);
+    return {
+      firstName: nameParts[0] || '',
+      lastName: nameParts.slice(1).join(' '),
+      email: u?.email || '',
+      phone: '',
+      location: '',
+      // null, not false: the answer agent is told never to guess work
+      // authorization, so it leaves these blank instead of asserting something
+      // untrue on a real application.
+      workAuthorized: null,
+      needsVisaSponsorship: null,
+      linkedinUrl: '',
+      githubUrl: '',
+      portfolioUrl: '',
+      gender: '',
+      currentCompensation: '',
+      expectedCompensation: '',
+      noticePeriod: '',
+      aiShowcaseLink: '',
+      yearsExperience: '',
+      industry: '',
+      resumePath: '',
+      declineDemographics: true,
+    };
+  };
 
   const loadUserData = async (userId: string, forUser: UserProfile | null) => {
     // Parallel data fetching
@@ -181,12 +221,16 @@ const App: React.FC = () => {
       databaseService.getSubmittedKeys(userId)
     ]);
 
-    // One-shot migration: if saved master is the legacy placeholder (TechGrow / CreativeAgencies sample),
-    // overwrite it with the real Jay resume. Lets the new default land without a manual reset.
-    const isLegacySample = !!fetchedMaster && /TechGrow|CreativeAgencies|Growth Marketing Manager/i.test(fetchedMaster);
-    const effectiveMaster = !fetchedMaster || isLegacySample ? SAMPLE_CV : fetchedMaster;
+    // Only the owner's account is seeded with the bundled resume. Everyone else
+    // starts empty and uploads or pastes their own, which then persists as their
+    // master. Scoping the legacy-sample reset to the owner too means it can never
+    // clobber someone else's saved resume.
+    const seedMaster = isOwnerEmail(forUser?.email) ? SAMPLE_CV : '';
+    const isLegacySample = !!seedMaster && !!fetchedMaster
+      && /TechGrow|CreativeAgencies|Growth Marketing Manager/i.test(fetchedMaster);
+    const effectiveMaster = (!fetchedMaster || isLegacySample) ? seedMaster : fetchedMaster;
     if (isLegacySample) {
-      try { await databaseService.saveMasterCV(userId, SAMPLE_CV); } catch { /* localStorage fallback handles it */ }
+      try { await databaseService.saveMasterCV(userId, seedMaster); } catch { /* localStorage fallback handles it */ }
     }
 
     setHistory(fetchedHistory);
@@ -200,15 +244,35 @@ const App: React.FC = () => {
     }
     setApplicationProfile(effectiveProfile);
 
-    // Initialize workspace with the same effective master CV.
-    if (!cvHtml) setCvHtml(effectiveMaster);
+    // Restore whatever this user last uploaded or pasted; only fall back to their
+    // master (or the seed) when there is no saved draft.
+    const workingCv = databaseService.getWorkingCV(userId);
+    if (!cvHtml) setCvHtml(workingCv || effectiveMaster);
   };
 
+  /**
+   * Remember the resume the user is working with, keyed to them.
+   *
+   * Also adopts it as their master when they do not have one yet: a person whose
+   * first action is to paste their resume clearly means that to be their resume.
+   * It never overwrites an existing master, so a tailored per-application version
+   * cannot degrade the canonical one.
+   */
+  const rememberWorkingCV = useCallback((html: string) => {
+    setCvHtml(html);
+    if (!user || !html.trim()) return;
+    databaseService.saveWorkingCV(user.id, html);
+    if (!masterCvHtml.trim()) {
+      setMasterCvHtml(html);
+      databaseService.saveMasterCV(user.id, html).catch(() => { /* local fallback handles it */ });
+    }
+  }, [user, masterCvHtml]);
+
   // --- AUTH HANDLERS ---
-  const handleLogin = async () => {
+  const handleLogin = async (identity: SignInIdentity) => {
     setIsAuthLoading(true);
     try {
-      const newUser = await authService.signInWithGoogle();
+      const newUser = await authService.signInWithGoogle(identity);
       setUser(newUser);
       await loadUserData(newUser.id, newUser);
     } catch (e) {
@@ -510,7 +574,7 @@ const App: React.FC = () => {
         }
         alert("Master Resume Updated!");
       } else {
-        setCvHtml(parsedHtml);
+        rememberWorkingCV(parsedHtml);
         setInputMethod('paste');
         alert("Resume loaded for this application.");
       }
@@ -959,7 +1023,7 @@ const App: React.FC = () => {
                         <input type="file" ref={fileInputRef} hidden accept=".docx,.pdf" onChange={(e) => handleFileUpload(e, 'workspace')} />
                       </div>
                   ) : (
-                      <RichEditor content={cvHtml} onChange={setCvHtml} className="flex-1 overflow-hidden" viewMode="fluid" />
+                      <RichEditor content={cvHtml} onChange={rememberWorkingCV} className="flex-1 overflow-hidden" viewMode="fluid" />
                   )}
                 </div>
 
