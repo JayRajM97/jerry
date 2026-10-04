@@ -1,4 +1,5 @@
-import { chromium, Browser, Page } from 'playwright';
+import type { Browser, Page } from 'playwright-core';
+import { launchBrowser, isServerless } from './browser';
 import { mkdirSync, mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve as resolvePath } from 'path';
@@ -451,11 +452,13 @@ export async function runAshbyApply(opts: {
 
   const resumeBase = `${profile.firstName}_${profile.lastName}_Resume`.replace(/[^A-Za-z0-9_]/g, '') || 'Resume';
 
-  const browser = await chromium.launch({ headless, slowMo: headless ? 0 : 350 });
+  const browser = await launchBrowser({ headless, slowMo: headless ? 0 : 350 });
 
   const recordVideoEnv = (process.env.RECORD_VIDEO || '').toLowerCase();
-  const recordVideo = recordVideoEnv === '1' || recordVideoEnv === 'true'
-    || (process.env.NODE_ENV !== 'production' && !headless);
+  // Never record in serverless: the deployment filesystem is read-only and the
+  // container is discarded after the response, so there is nowhere to keep a .webm.
+  const recordVideo = !isServerless && (recordVideoEnv === '1' || recordVideoEnv === 'true'
+    || (process.env.NODE_ENV !== 'production' && !headless));
   let videoDir: string | undefined;
   if (recordVideo) {
     videoDir = resolvePath(process.cwd(), 'recordings', `${job.orgSlug}_${job.jobId}_${Date.now()}`);

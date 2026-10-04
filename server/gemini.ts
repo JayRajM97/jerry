@@ -1,28 +1,52 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import type { ApplicationProfile } from '../types';
 
 // Voice/style guide is a repo asset (voice/style.md). Read once; restart picks up edits.
 // Stripped of header lines so only the real style content reaches the prompt.
 function loadVoiceStyle(): string {
-  try {
-    const raw = readFileSync(resolve(process.cwd(), 'voice/style.md'), 'utf8');
-    const trimmed = raw.replace(/^---[\s\S]*?---\s*/g, '').trim();
-    if (/Empty for now/i.test(trimmed) || trimmed.length < 20) return '';
-    return trimmed;
-  } catch {
-    return '';
+  // cwd is the repo root locally but the function root on Vercel, so try the
+  // module-relative path too rather than relying on one of them.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    resolve(process.cwd(), 'voice/style.md'),
+    join(here, '..', 'voice', 'style.md'),
+    join(here, '..', '..', 'voice', 'style.md'),
+  ];
+  for (const path of candidates) {
+    try {
+      const raw = readFileSync(path, 'utf8');
+      const trimmed = raw.replace(/^---[\s\S]*?---\s*/g, '').trim();
+      if (/Empty for now/i.test(trimmed) || trimmed.length < 20) return '';
+      return trimmed;
+    } catch {
+      // try the next candidate
+    }
   }
+  return '';
 }
 const VOICE_STYLE = loadVoiceStyle();
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Exposed on /api/health so a deploy can be checked for the voice guide actually shipping.
+export const voiceStyleLoaded = VOICE_STYLE.length > 0;
+
+// Lazy so a missing key fails the request with a clear message rather than the import.
+let _ai: GoogleGenAI | null = null;
+function getAi(): GoogleGenAI {
+  if (!_ai) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured on the server.');
+    _ai = new GoogleGenAI({ apiKey });
+  }
+  return _ai;
+}
 
 // Retry transient 429/503 (model overloaded) with exponential backoff.
 async function generateWithRetry(params: any, retries = 4, delay = 2000): Promise<any> {
   try {
-    return await ai.models.generateContent(params);
+    return await getAi().models.generateContent(params);
   } catch (error: any) {
     const code = error?.status || error?.error?.code || error?.statusCode;
     const msg = error?.message || error?.error?.message || JSON.stringify(error);

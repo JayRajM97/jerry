@@ -15,7 +15,10 @@ export default defineConfig(() => {
         },
       },
       plugins: [react()],
-      envPrefix: ['VITE_', 'GEMINI_'],
+      // Only VITE_* is exposed to the client. GEMINI_ was previously included here,
+      // which inlined the API key into the browser bundle; all Gemini calls now go
+      // through /api/ai/* on the server instead.
+      envPrefix: ['VITE_'],
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),

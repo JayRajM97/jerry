@@ -1,4 +1,5 @@
-import { chromium, Browser, Page } from 'playwright';
+import type { Browser, Page } from 'playwright-core';
+import { launchBrowser, isServerless } from './browser';
 import { mkdirSync, mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve as resolvePath } from 'path';
@@ -80,7 +81,7 @@ export function parseGreenhouseUrl(raw: string): ParsedJobUrl {
 
 // Company pages load the board token at runtime; sniff the boards-api call to recover it.
 export async function discoverBoardToken(pageUrl: string): Promise<string> {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchBrowser({ headless: true });
   try {
     const page = await browser.newPage();
     let token: string | null = null;
@@ -333,13 +334,15 @@ export async function runApply(opts: {
   const resumeBase = `${nameFor('first_name')}_${nameFor('last_name')}_Resume`.replace(/[^A-Za-z0-9_]/g, '') || 'Resume';
 
   // Slow down actions when visible so the user can follow the automation.
-  const browser = await chromium.launch({ headless, slowMo: headless ? 0 : 350 });
+  const browser = await launchBrowser({ headless, slowMo: headless ? 0 : 350 });
 
   // Record video only in local/dev runs (never in production — Render disk is ephemeral).
   // Toggle by env RECORD_VIDEO=1/true, or implicitly when running non-headless in dev.
   const recordVideoEnv = (process.env.RECORD_VIDEO || '').toLowerCase();
-  const recordVideo = recordVideoEnv === '1' || recordVideoEnv === 'true'
-    || (process.env.NODE_ENV !== 'production' && !headless);
+  // Never record in serverless: the deployment filesystem is read-only and the
+  // container is discarded after the response, so there is nowhere to keep a .webm.
+  const recordVideo = !isServerless && (recordVideoEnv === '1' || recordVideoEnv === 'true'
+    || (process.env.NODE_ENV !== 'production' && !headless));
   let videoDir: string | undefined;
   if (recordVideo) {
     videoDir = resolvePath(process.cwd(), 'recordings', `${job.boardToken}_${job.jobId}_${Date.now()}`);

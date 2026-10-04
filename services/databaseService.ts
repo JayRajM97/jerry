@@ -3,17 +3,26 @@ import { createClient } from "@libsql/client";
 import { HistoryItem, ApplicationProfile, ApplicationLogEntry } from "../types";
 
 // --- CONFIGURATION ---
-// 1. We use the token provided by the user.
-// 2. We keep a placeholder URL. To enable real Cloud Sync, replace this with your specific Turso DB URL (e.g. https://my-db-name.turso.io).
-// 3. We implemented a fallback: If the URL is invalid or connection fails, the app automatically degrades to LocalStorage so you can still work.
-const DB_URL = "https://resume-updater-placeholder.turso.io"; 
-const DB_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJwUURSSXcwT0VmR21hNEl3cVF5NkxnIn0.OjpXcM0-lTjqaZdosfM3Zyj1rWUp3old2R9a2u0CBwQxSqtDK_yTkW6jigrRnKpViuovW77HJOHaFwwRufuSDw";
+// Cloud sync (Turso) is opt-in. Set both of these in .env.local / Vercel env to enable it:
+//   VITE_TURSO_URL    e.g. libsql://my-db-name.turso.io
+//   VITE_TURSO_TOKEN  the DB auth token
+// When either is missing the app runs entirely on LocalStorage, which is the default
+// single-user mode. Every call below already falls back to LocalStorage on error.
+//
+// NOTE: these are Vite client-side vars, so anything set here ships in the browser
+// bundle and is readable by anyone who can load the page. Only point this at a DB
+// whose token you are comfortable exposing, or move persistence behind the API first.
+const DB_URL = import.meta.env.VITE_TURSO_URL as string | undefined;
+const DB_TOKEN = import.meta.env.VITE_TURSO_TOKEN as string | undefined;
 
-// Initialize the Turso client
-const client = createClient({
-  url: DB_URL,
-  authToken: DB_TOKEN,
-});
+export const cloudSyncEnabled = !!(DB_URL && DB_TOKEN);
+
+// A stub that rejects keeps the call sites below unchanged: each one already
+// catches and reads/writes LocalStorage instead.
+const OFFLINE_ERROR = 'Cloud sync not configured (set VITE_TURSO_URL and VITE_TURSO_TOKEN) — using LocalStorage.';
+const client = cloudSyncEnabled
+  ? createClient({ url: DB_URL!, authToken: DB_TOKEN! })
+  : ({ execute: async () => { throw new Error(OFFLINE_ERROR); } } as unknown as ReturnType<typeof createClient>);
 
 // Keys for LocalStorage fallback
 const FALLBACK_PREFIX_HISTORY = 'ru_offline_history_';
